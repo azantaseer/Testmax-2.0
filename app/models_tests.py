@@ -59,6 +59,8 @@ class TcCase(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     edited: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")  # changed by a person after generation
+    # data variations beyond the default (DV-1 is the test data written in the steps): [{id, name, values: {key: value}}]
+    data_sets: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
 
 
 class TsScript(Base):
@@ -86,6 +88,8 @@ class TsScript(Base):
     not_automated: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     blocked_message: Mapped[str | None] = mapped_column(Text)
     case_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")  # the test case version it was written from
+    data_keys: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")  # test data keys the script reads from its data block
+    data_gaps: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")  # [{stepNo, key}]: values still written into the script as typed
     created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -114,6 +118,7 @@ class TsRun(Base):
     error: Mapped[str] = mapped_column(Text, nullable=False, default="")
     log: Mapped[str] = mapped_column(Text, nullable=False, default="")
     script_code: Mapped[str] = mapped_column(Text, nullable=False, default="")  # what actually ran (the script may be regenerated later)
+    data_set: Mapped[dict | None] = mapped_column(JSONB)  # {id, name, values}: the data variation this run used (None: a script without data)
     created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

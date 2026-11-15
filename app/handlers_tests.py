@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import jobs, llm, providers
-from app.engines import tcg, tsg
+from app.engines import datadriven, tcg, tsg
 from app.models import Project
 from app.models_runner import Scan
 from app.models_tests import TcCase, TcSet, TsScript
@@ -154,7 +154,7 @@ def generate_test_script(db: Session, job: Job) -> None:
         "preRequisites": case.prerequisites,
         "testObjective": case.objective,
         "expectedResult": case.expected_result,
-        "steps": case.steps,
+        "steps": [{k: v for k, v in step.items() if k != "dataKey"} for step in (case.steps or [])],  # the AI sees the steps exactly as before
     }
 
     def converse(messages, max_output_tokens):
@@ -188,7 +188,16 @@ def generate_test_script(db: Session, job: Job) -> None:
         base = db.scalar(select(func.coalesce(func.max(TsScript.seq), 0)).where(TsScript.project_id == job.project_id))
         script = TsScript(tenant_id=job.tenant_id, project_id=job.project_id, test_case_id=case.id, seq=base + 1, created_by=job.created_by)
         db.add(script)
-    script.code = out["script"]
+    # Data-driven: values typed into the steps become DATA["key"] lookups (the AI prompt and the generator are unchanged).
+    steps_with_keys = datadriven.with_keys(case.steps or [])
+    pz = datadriven.parameterize(out["script"], steps_with_keys)
+    if pz["keys"] and tsg.check_syntax(pz["code"]):
+        pz = {"code": out["script"], "keys": [], "gaps": []}  # never store a script that does not parse: keep the plain one
+    if steps_with_keys != (case.steps or []):
+        case.steps = steps_with_keys  # keys are metadata: no new version, so no script is flagged out of date
+    script.code = pz["code"]
+    script.data_keys = pz["keys"]
+    script.data_gaps = pz["gaps"]
     script.language = "javascript"
     script.job_id = job.id
     script.provider, script.model, script.prompt_sha256 = provider, model, prompt_sha

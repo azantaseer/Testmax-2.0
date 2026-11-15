@@ -390,6 +390,26 @@ export function testScriptDetailView(projectId, scriptId) {
     const batch = scriptBatch(project, () => load());
     const notes = [];
     if (s.stale) notes.push(h("div", { class: "notice stale-note", style: "margin-bottom:16px" }, h("span", {}, h("strong", {}, "This script is out of date. "), "The test case was edited after it was written, so the script may no longer match it. "), h("button", { class: "btn btn-ai btn-sm", type: "button", onclick: () => batch.start([s.test_case_id]) }, icon("sparkle"), "Regenerate")));
+    if (s.data_driven && s.data_gaps.length) {
+      notes.push(
+        h("div", { class: "flagged", style: "margin-bottom:16px" }, h("strong", {}, "Some values are written into the script as typed. "), `Step ${s.data_gaps.map((g) => g.stepNo).join(", ")} ${s.data_gaps.length === 1 ? "has" : "have"} test data that the script does not read from its data block (${s.data_gaps.map((g) => g.key).join(", ")}). A data variation will not change ${s.data_gaps.length === 1 ? "it" : "them"}. Regenerate the script to try again.`),
+      );
+    }
+    if (!s.data_driven && !s.blocked_message) {
+      const convert = h("button", { class: "btn btn-secondary btn-sm", type: "button" }, "Make data-driven");
+      convert.addEventListener("click", async () => {
+        convert.disabled = true;
+        try {
+          await post(`/api/projects/${projectId}/test-scripts/${scriptId}/make-data-driven`);
+          toast("The script now reads its values from a data block.");
+          load();
+        } catch (err) {
+          convert.disabled = false;
+          toast(errorText(err), "error");
+        }
+      });
+      notes.push(h("div", { class: "notice stale-note", style: "margin-top:0;margin-bottom:16px" }, h("span", {}, h("strong", {}, "This script has its test data written into it. "), "Make it data-driven to run it with different data variations of the test case. No AI call is needed."), convert));
+    }
     if (s.blocked_message) notes.push(h("div", { class: "flagged", style: "margin-bottom:16px" }, h("strong", {}, "Needs test data. "), s.blocked_message));
     if (s.not_automated.length) notes.push(h("div", { class: "flagged", style: "margin-bottom:16px" }, h("strong", {}, "Not automated"), h("ul", {}, s.not_automated.map((n) => h("li", {}, n)))));
     if (s.steps_without_locator.length) notes.push(h("div", { class: "flagged", style: "margin-bottom:16px" }, h("strong", {}, "Steps without a scanned control: "), s.steps_without_locator.join(", ")));
@@ -427,6 +447,7 @@ export function testScriptDetailView(projectId, scriptId) {
               h("div", { class: "kv" }, h("span", { class: "k" }, "Framework"), h("span", { class: "v" }, s.framework)),
               h("div", { class: "kv" }, h("span", { class: "k" }, "Language"), h("span", { class: "v" }, "JavaScript")),
               h("div", { class: "kv" }, h("span", { class: "k" }, "Author"), h("span", { class: "v" }, h("span", { class: "tpill ai" }, "AI"), ` ${s.model || ""}`)),
+              h("div", { class: "kv" }, h("span", { class: "k" }, "Test data"), h("span", { class: "v" }, s.data_driven ? `Data-driven (${s.data_keys.length} value${s.data_keys.length === 1 ? "" : "s"})` : "Fixed values")),
               h("div", { class: "kv" }, h("span", { class: "k" }, "Created"), h("span", { class: "v" }, formatDay(s.created_at))),
               h("div", { class: "kv" }, h("span", { class: "k" }, "Project"), h("span", { class: "v" }, project.name)),
               h("div", { class: "kv" }, h("span", { class: "k" }, "Test case"), h("span", { class: "v cell-key" }, h("a", { class: "row-link", href: `/projects/${projectId}/test-cases/${s.test_case_id}`, "data-link": "" }, s.test_case_key || "—"))),

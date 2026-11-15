@@ -7,6 +7,7 @@ import { addGuard, navigate, PROVIDER_LABEL, state } from "../store.js";
 import { formatDate, formatDay, projectFrame, typePill } from "./projectFrame.js";
 import { jobTracker } from "./jobs.js";
 import { scriptBatch } from "./testScripts.js";
+import { dataSetsDialog, valueFor, variationPicker } from "./dataSets.js";
 
 const SOURCE_LABEL = { system: "system default", tenant: "your organization's choice", user: "your own setting" };
 
@@ -309,6 +310,9 @@ export function testCaseDetailView(projectId, caseId) {
       const technical = h("input", { class: "cb", type: "checkbox", id: "tech" });
       const stepsBody = h("tbody");
       const stepsHead = h("thead");
+      const dataInfo = c.data || { keys: [], default: {}, sets: [] };
+      const hasKeys = dataInfo.keys.length > 0;
+      let shown = 0; // which data variation the Test Data column shows (0 = DV-1)
       function drawSteps() {
         const tech = technical.checked;
         stepsBody.replaceChildren(
@@ -319,14 +323,18 @@ export function testCaseDetailView(projectId, caseId) {
               h("td", { class: "num" }, String(s.stepNo)),
               h("td", {}, s.testStep),
               h("td", {}, dashed(s.fieldName)),
-              h("td", {}, testDataCell(s.testData)),
+              hasKeys ? h("td", {}, s.dataKey ? h("code", { class: "key-chip" }, s.dataKey) : h("span", { class: "dash" }, "\u2014")) : null,
+              h("td", {}, s.dataKey ? testDataCell(valueFor(dataInfo, shown, s.dataKey)) : testDataCell(s.testData)),
               h("td", { class: "sec" }, dashed(s.expectedResult)),
               tech ? h("td", { class: "tech" }, s.sourceElementId || "—") : null,
               h("td", { class: "row-edit" }, h("button", { class: "icon-btn", type: "button", "aria-label": `Edit step ${s.stepNo}`, title: "Edit this step", onclick: () => { focusStep = s.stepNo; editing = true; render(); } }, icon("pencil"))),
             ),
           ),
         );
-        stepsHead.replaceChildren(h("tr", {}, ...["ID", "Test Step", "Field Name", "Test Data", "Expected Result"].map((t) => h("th", { scope: "col" }, t)), tech ? h("th", { scope: "col" }, "Source element") : null, h("th", { scope: "col", class: "row-edit" }, h("span", { class: "sr-only" }, "Edit"))));
+        const dataHead = dataInfo.sets.length
+          ? h("th", { scope: "col" }, variationPicker(dataInfo, shown, (i) => { shown = i; drawSteps(); }))
+          : h("th", { scope: "col" }, "Test Data");
+        stepsHead.replaceChildren(h("tr", {}, h("th", { scope: "col" }, "ID"), h("th", { scope: "col" }, "Test Step"), h("th", { scope: "col" }, "Field Name"), hasKeys ? h("th", { scope: "col" }, "Key") : null, dataHead, h("th", { scope: "col" }, "Expected Result"), tech ? h("th", { scope: "col" }, "Source element") : null, h("th", { scope: "col", class: "row-edit" }, h("span", { class: "sr-only" }, "Edit"))));
       }
       technical.addEventListener("change", drawSteps);
       drawSteps();
@@ -381,7 +389,17 @@ export function testCaseDetailView(projectId, caseId) {
             h(
               "div",
               { class: "card" },
-              h("div", { class: "steps-head" }, h("p", { class: "card-label", style: "margin:0" }, "Test steps"), h("label", { for: "tech" }, technical, "Technical columns")),
+              h(
+                "div",
+                { class: "steps-head" },
+                h("p", { class: "card-label", style: "margin:0" }, "Test steps"),
+                h(
+                  "div",
+                  { class: "toolbar-right" },
+                  hasKeys ? h("button", { class: "btn btn-secondary btn-sm", type: "button", onclick: () => dataSetsDialog({ project_id: projectId, id: c.id, key: c.key, title: c.title, data: dataInfo }, () => load()) }, icon("plus"), c.data.sets.length ? "Data variations" : "Add Data Variations") : null,
+                  h("label", { for: "tech" }, technical, "Technical columns"),
+                ),
+              ),
               h("div", { class: "steps-wrap" }, h("table", { class: "steps-table" }, stepsHead, stepsBody)),
             ),
             ...notes,
@@ -414,7 +432,7 @@ export function testCaseDetailView(projectId, caseId) {
 
     // ------------------------------------------------------------ edit page
     function editView() {
-      const work = c.steps.map((s) => ({ testStep: s.testStep, fieldName: blank(s.fieldName), testData: blank(s.testData), expectedResult: blank(s.expectedResult), sourceElementId: s.sourceElementId || null }));
+      const work = c.steps.map((s) => ({ testStep: s.testStep, fieldName: blank(s.fieldName), testData: blank(s.testData), expectedResult: blank(s.expectedResult), sourceElementId: s.sourceElementId || null, dataKey: s.dataKey || null }));
       const title = h("input", { class: "input title-input", id: "e-title", maxlength: "300", value: c.title, "aria-label": "Title" });
       const type = h("select", { class: "input type-select", id: "e-type", "aria-label": "Type" }, CASE_TYPES.map((t) => h("option", { value: t, selected: t === c.type }, TYPE_LABEL[t])));
       const area = (id, value, rows, max) => {
@@ -486,7 +504,7 @@ export function testCaseDetailView(projectId, caseId) {
       }
       drawRows();
       const addStep = h("button", { class: "btn btn-secondary btn-sm", type: "button", onclick: () => {
-        work.push({ testStep: "", fieldName: "", testData: "", expectedResult: "", sourceElementId: null });
+        work.push({ testStep: "", fieldName: "", testData: "", expectedResult: "", sourceElementId: null, dataKey: null });
         focusStep = work.length;
         drawRows();
       } }, icon("plus"), "Add step");
@@ -539,7 +557,7 @@ export function testCaseDetailView(projectId, caseId) {
             prerequisites: prerequisites.value.split("\n"),
             objective: objective.value,
             expected_result: expected.value,
-            steps: work.map((s) => ({ testStep: s.testStep, fieldName: s.fieldName, testData: s.testData, expectedResult: s.expectedResult, sourceElementId: s.sourceElementId })),
+            steps: work.map((s) => ({ testStep: s.testStep, fieldName: s.fieldName, testData: s.testData, expectedResult: s.expectedResult, sourceElementId: s.sourceElementId, dataKey: s.dataKey })),
           });
           warnings = saved.warnings || [];
           editing = false;

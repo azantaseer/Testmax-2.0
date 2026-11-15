@@ -15,13 +15,14 @@ import uuid
 from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.deps import scoped_select
-from app.engines import tcg
+from app.engines import datadriven, tcg
 from app.errors import AppError
 from app.models import User
-from app.models_tests import TcCase
+from app.models_tests import TcCase, TsScript
 from app.models_work import Requirement
 
 CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -50,6 +51,7 @@ class StepEdit(BaseModel):
     testData: str = Field(default="", max_length=500)
     expectedResult: str = Field(default="", max_length=1000)
     sourceElementId: str | None = Field(default=None, max_length=200)
+    dataKey: str | None = Field(default=None, max_length=60)
 
 
 class TestCaseEdit(BaseModel):
@@ -132,6 +134,7 @@ def _new_steps(old_steps: list[dict], edits: list[StepEdit]) -> list[dict]:
     if not edits:
         raise AppError(422, "invalid_edit", "A test case needs at least one step.")
     known = {s.get("sourceElementId") for s in old_steps if s.get("sourceElementId")}
+    known_keys = {s.get("dataKey") for s in datadriven.with_keys(old_steps) if s.get("dataKey")}
     steps = []
     for number, edit in enumerate(edits, start=1):
         text = _one_line(edit.testStep)
@@ -146,8 +149,33 @@ def _new_steps(old_steps: list[dict], edits: list[StepEdit]) -> list[dict]:
             # the same shape the generator stores: the id, or None for a step without a scanned control
             "sourceElementId": edit.sourceElementId if edit.sourceElementId and edit.sourceElementId in known else None,
         }
+        # a step keeps its test data key (so data variations stay attached to it); a new step gets a fresh one below
+        if edit.dataKey and edit.dataKey in known_keys:
+            step["dataKey"] = edit.dataKey
         steps.append(step)
-    return steps
+    seen = set()
+    for step in steps:  # a key is used by one step only
+        if step.get("dataKey") in seen:
+            step.pop("dataKey")
+        elif step.get("dataKey"):
+            seen.add(step["dataKey"])
+    return datadriven.with_keys(steps)
+
+
+def _without_keys(steps: list) -> list:
+    return [{k: v for k, v in step.items() if k != "dataKey"} for step in (steps or [])]
+
+
+def _keep_script_current_for_data_edit(db: Session, case: TcCase, old_version: int, old_keyed: list, before: tuple, after: tuple) -> None:
+    """Changing only the test data that a data-driven script reads from its data block does not make the script out of date:
+    the script is not changed by it (the values are filled in when it runs). Anything else still does."""
+    script = db.scalar(select(TsScript).where(TsScript.test_case_id == case.id, TsScript.tenant_id == case.tenant_id))
+    if script is None or not script.data_keys or script.case_version != old_version:
+        return
+    if before[:6] != after[:6] or not datadriven.only_data_changed(old_keyed, case.steps or [], list(script.data_keys)):
+        return
+    script.case_version = case.version
+    script.code = datadriven.rewrite_block(script.code, datadriven.values_for(case.steps or [], None))
 
 
 def edit_test_case(db: Session, user: User, project_id: uuid.UUID, case_id: uuid.UUID, body: TestCaseEdit) -> tuple[TcCase, list[str]]:
@@ -155,7 +183,9 @@ def edit_test_case(db: Session, user: User, project_id: uuid.UUID, case_id: uuid
     if case is None:
         raise AppError(404, "test_case_not_found", "Test case not found.")
     _check_version(case, body.version, "test case")
-    before = (case.title, case.case_type, case.overview, list(case.prerequisites or []), case.objective, case.expected_result, case.steps)
+    old_version = case.version
+    old_keyed = datadriven.with_keys(case.steps or [])
+    before = (case.title, case.case_type, case.overview, list(case.prerequisites or []), case.objective, case.expected_result, _without_keys(case.steps))
     if body.title is not None:
         title = _one_line(body.title)
         if not title:
@@ -179,8 +209,11 @@ def edit_test_case(db: Session, user: User, project_id: uuid.UUID, case_id: uuid
         case.expected_result = result
     if body.steps is not None:
         case.steps = _new_steps(case.steps or [], body.steps)
-    after = (case.title, case.case_type, case.overview, list(case.prerequisites or []), case.objective, case.expected_result, case.steps)
+    elif old_keyed != (case.steps or []):
+        case.steps = old_keyed  # remember the keys; this is not a change a person made
+    after = (case.title, case.case_type, case.overview, list(case.prerequisites or []), case.objective, case.expected_result, _without_keys(case.steps))
     if after != before:
         _touch(case, user)
+        _keep_script_current_for_data_edit(db, case, old_version, old_keyed, before, after)
     db.commit()
     return case, step_warnings(case.steps or []) if body.steps is not None else []

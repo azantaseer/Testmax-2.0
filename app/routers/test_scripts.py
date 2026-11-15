@@ -11,6 +11,7 @@ from app import ai_providers, deletion, jobs
 from app.ai_settings import effective_ai, require_model
 from app.db import get_db
 from app.deps import current_user, scoped_select
+from app.engines import datadriven, tsg
 from app.errors import AppError
 from app.models import Tenant, User
 from app.models_tests import TcCase, TcSet, TsScript
@@ -35,7 +36,7 @@ def scripts_for_cases(db: Session, user: User, case_ids: list) -> dict:
     rows = db.scalars(scoped_select(TsScript, user).where(TsScript.test_case_id.in_(case_ids))).all()
     versions = dict(db.execute(select(TcCase.id, TcCase.version).where(TcCase.id.in_(case_ids))).all())
     return {
-        s.test_case_id: {"id": str(s.id), "key": script_key(s.seq), "blocked": bool(s.blocked_message), "stale": s.case_version != versions.get(s.test_case_id, s.case_version)}
+        s.test_case_id: {"id": str(s.id), "key": script_key(s.seq), "blocked": bool(s.blocked_message), "stale": s.case_version != versions.get(s.test_case_id, s.case_version), "data_driven": bool(s.data_keys)}
         for s in rows
     }
 
@@ -56,6 +57,7 @@ def _row(s: TsScript, case: TcCase | None, extra: dict | None = None) -> dict:
         "type": case.case_type if case else None,
         "language": s.language,
         "blocked": bool(s.blocked_message),
+        "data_driven": bool(s.data_keys),
         "stale": bool(case is not None and s.case_version != case.version),  # the test case was edited after this script was written
         "created_at": s.created_at.isoformat(),
         "updated_at": s.updated_at.isoformat(),
@@ -201,6 +203,8 @@ def read_script(project_id: uuid.UUID, script_id: uuid.UUID, user: User = Depend
         "steps_without_locator": s.steps_without_locator,
         "not_automated": s.not_automated,
         "blocked_message": s.blocked_message,
+        "data_keys": list(s.data_keys or []),
+        "data_gaps": list(s.data_gaps or []),
         "run_stats": run_stats(db, user, s.id),
     }
 
@@ -213,8 +217,42 @@ def delete_scripts(project_id: uuid.UUID, body: deletion.DeleteMany, user: User 
 
 
 @router.get("/projects/{project_id}/test-scripts/{script_id}/download")
-def download_script(project_id: uuid.UUID, script_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)):
+def download_script(project_id: uuid.UUID, script_id: uuid.UUID, data_set: str = "default", user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """The script file. A data-driven script comes with the current values of one data variation (default: DV-1) written into it."""
     get_project(db, user, project_id)
     s = _get_script(db, user, project_id, script_id)
     case = db.scalar(scoped_select(TcCase, user).where(TcCase.id == s.test_case_id))
-    return Response(s.code, media_type="text/javascript", headers={"Content-Disposition": f'attachment; filename="{_file_name(s, case)}"'})
+    code = s.code
+    if case is not None:
+        _, _, chosen = datadriven.choose(case.data_sets, [data_set])[0]
+        code = datadriven.run_code(s.code, case.steps or [], chosen)
+    return Response(code, media_type="text/javascript", headers={"Content-Disposition": f'attachment; filename="{_file_name(s, case)}"'})
+
+
+@router.post("/projects/{project_id}/test-scripts/{script_id}/make-data-driven")
+def make_data_driven(project_id: uuid.UUID, script_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Turn a script that was written before data variations existed into one that reads its values from a data block.
+    No AI call: the values typed into the steps are found in the script and replaced. Values that are not found are listed."""
+    get_project(db, user, project_id)
+    s = db.scalar(scoped_select(TsScript, user).where(TsScript.id == script_id, TsScript.project_id == project_id).with_for_update())
+    if s is None:
+        raise AppError(404, "test_script_not_found", "Test script not found.")
+    case = db.scalar(scoped_select(TcCase, user).where(TcCase.id == s.test_case_id))
+    if case is None:
+        raise AppError(404, "test_case_not_found", "Test case not found.")
+    if datadriven.is_data_driven(s.code):
+        raise AppError(409, "already_data_driven", "This script already reads its values from a data block.")
+    keyed = datadriven.with_keys(case.steps or [])
+    result = datadriven.parameterize(s.code, keyed)
+    if not result["keys"]:
+        raise AppError(409, "nothing_to_change", "None of the test data of this test case is written into the script as typed, so there is nothing to turn into variables. Generate the script again.")
+    error = tsg.check_syntax(result["code"])
+    if error:
+        raise AppError(409, "not_parseable", "The changed script did not pass the syntax check, so nothing was changed. Generate the script again.")
+    s.code, s.data_keys, s.data_gaps = result["code"], result["keys"], result["gaps"]
+    if keyed != (case.steps or []):
+        case.steps = keyed
+    db.commit()
+    return {"data_keys": s.data_keys, "data_gaps": s.data_gaps}
+
+

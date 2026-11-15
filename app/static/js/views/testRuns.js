@@ -5,6 +5,7 @@ import { navigate } from "../store.js";
 import { formatDate, formatDay, projectFrame } from "./projectFrame.js";
 import { runnerChoice } from "./runnerPicker.js";
 import { statusPill } from "./testScripts.js";
+import { setLabel } from "./dataSets.js";
 
 const RUN_LABEL = { passed: "Passed", failed: "Failed", skipped: "Skipped", aborted: "Aborted" };
 
@@ -17,7 +18,7 @@ function seconds(value) {
  * Starts an execution of a script (or follows one that is already running when `job` is given) and shows its progress.
  * onFinished(job) is called when the run ended (the run itself is in job.result when it succeeded).
  */
-function askRunner(script, choice) {
+function askRunner(script, choice, sets = []) {
   return new Promise((resolve) => {
     let settled = false;
     const done = (value) => {
@@ -27,26 +28,113 @@ function askRunner(script, choice) {
       resolve(value);
     };
     const run = h("button", { class: "btn btn-primary btn-md", type: "submit" }, "▷ Execute");
+    const boxes = [];
+    const picker = sets.length
+      ? h(
+          "fieldset",
+          { class: "field dv-fieldset" },
+          h("legend", { class: "label" }, "Data variations to run"),
+          h("div", { class: "check-list" }, [{ id: "default", label: setLabel(0) }, ...sets.map((s, i) => ({ id: s.id, label: setLabel(i + 1, s) }))].map((o, i) => {
+            const box = h("input", { type: "checkbox", value: o.id, checked: i === 0, id: `dv-${o.id}` });
+            boxes.push(box);
+            return h("label", { class: "check-row", for: `dv-${o.id}` }, box, o.label);
+          })),
+          h("div", { class: "field-hint" }, "Each one you tick is run as its own execution with that variation's values."),
+        )
+      : null;
+    const warn = h("div", { class: "field-error", role: "alert", hidden: true }, "Choose at least one data variation.");
     const form = h(
       "form",
       { class: "form-stack tight", novalidate: true },
       h("p", { class: "modal-text", style: "margin:0" }, `${script.key} · ${script.title}`),
+      picker,
+      warn,
       choice.el,
       h("div", { class: "modal-actions" }, h("button", { class: "btn btn-secondary btn-md", type: "button", onclick: () => done(null) }, "Cancel"), run),
     );
     form.addEventListener("submit", (event) => {
       event.preventDefault();
+      const chosen = boxes.filter((b) => b.checked).map((b) => b.value);
+      if (sets.length && !chosen.length) {
+        warn.hidden = false;
+        return;
+      }
       choice.remember();
-      done({ runnerId: choice.value() });
+      done({ runnerId: choice.value(), dataSets: sets.length ? chosen : null });
     });
-    const m = modal({ title: "Execute test script", content: form, width: 520 });
-    m.dialog.querySelector(".modal-x").addEventListener("click", () => done(null));
+    const m = modal({ title: "Execute test script", content: form, width: 520, onClose: () => done(null) });
   });
+}
+
+/** Several variations: one execution each, shown in one list that updates until all have ended. */
+async function executeMany(project, script, runnerId, dataSets, onFinished) {
+  const list = h("div", { class: "progress-steps" });
+  const banner = h("div", { class: "banner-error", role: "alert", hidden: true });
+  const actions = h("div", { class: "modal-actions" });
+  const heading = h("strong", {}, "Starting…");
+  const body = h("div", {}, h("div", { class: "job-head" }, h("span", { class: "spinner", "aria-hidden": "true" }), heading), h("div", { class: "job-meta", style: "margin-top:4px" }, `${script.key} · ${script.title}`), list, banner, actions);
+  const m = modal({ title: "Execute test script", content: body, width: 560 });
+  const closeBtn = h("button", { class: "btn btn-secondary btn-md", type: "button", onclick: () => m.close() }, "Close");
+  let started;
+  try {
+    started = await post(`/api/projects/${project.id}/test-scripts/${script.id}/execute`, { runner_id: runnerId, data_sets: dataSets });
+  } catch (err) {
+    body.querySelector(".spinner")?.remove();
+    heading.textContent = "Cannot execute yet";
+    banner.textContent = errorText(err);
+    banner.hidden = false;
+    actions.append(closeBtn);
+    return;
+  }
+  const rows = started.jobs.map((job) => {
+    const state = h("span", { class: "muted-text small" }, "Waiting…");
+    const link = h("span", {});
+    const el = h("div", { class: "row" }, h("span", { class: "dot" }), h("span", { style: "flex:1" }, job.label || "Run"), state, link);
+    list.append(el);
+    return { job, state, link, el, done: false };
+  });
+  const cancelAll = h("button", { class: "btn btn-secondary btn-md", type: "button", onclick: async () => {
+    cancelAll.disabled = true;
+    for (const r of rows.filter((x) => !x.done)) await post(`/api/jobs/${r.job.id}/cancel`).catch(() => {});
+  } }, "Cancel the rest");
+  actions.append(cancelAll);
+  heading.textContent = `Running ${rows.length} data variations…`;
+  while (m.dialog.isConnected && rows.some((r) => !r.done)) {
+    for (const r of rows.filter((x) => !x.done)) {
+      try {
+        const j = await get(`/api/jobs/${r.job.id}`);
+        if (j.status === "queued") r.state.textContent = "Waiting for a runner…";
+        else if (j.status === "running") r.state.textContent = j.progress || "Running…";
+        else {
+          r.done = true;
+          const dot = r.el.querySelector(".dot");
+          if (j.status === "succeeded") {
+            dot.classList.add(j.result.status === "passed" ? "passed" : "failed");
+            r.state.replaceChildren(statusPill(j.result.status));
+            r.link.append(" ", h("a", { class: "row-link", href: `/projects/${project.id}/test-runs/${j.result.run_id}`, "data-link": "", onclick: () => m.close() }, j.result.run_key));
+          } else {
+            dot.classList.add("failed");
+            r.state.textContent = j.error || "Did not finish";
+          }
+        }
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 404) r.done = true;
+      }
+    }
+    if (rows.some((r) => !r.done)) await new Promise((res) => setTimeout(res, 1500));
+  }
+  if (!m.dialog.isConnected) return;
+  body.querySelector(".spinner")?.remove();
+  cancelAll.remove();
+  heading.textContent = "All variations finished";
+  actions.append(closeBtn);
+  onFinished(started);
 }
 
 export async function executeScript(project, script, { job = null, onFinished = () => {} } = {}) {
   // With two or more runners the person may pick the one that should run it.
   let runnerId = null;
+  let dataSets = null; // null = just the script's own values (DV-1)
   if (!job) {
     let status = null;
     try {
@@ -54,12 +142,22 @@ export async function executeScript(project, script, { job = null, onFinished = 
     } catch {
       /* the server checks again when the run starts */
     }
+    let sets = [];
+    if (script.data_driven) {
+      try {
+        sets = (await get(`/api/projects/${project.id}/test-cases/${script.test_case_id}`)).data.sets;
+      } catch {
+        /* run with the default values */
+      }
+    }
     const choice = runnerChoice(status, { forScripts: true });
-    if (choice.choosable) {
-      const picked = await askRunner(script, choice);
+    if (choice.choosable || sets.length) {
+      const picked = await askRunner(script, choice, sets);
       if (!picked) return;
       runnerId = picked.runnerId;
+      dataSets = picked.dataSets;
     }
+    if (dataSets && dataSets.length > 1) return executeMany(project, script, runnerId, dataSets, onFinished);
   }
   const spinner = h("span", { class: "spinner", "aria-hidden": "true" });
   const title = h("strong", {}, "Starting…");
@@ -96,7 +194,7 @@ export async function executeScript(project, script, { job = null, onFinished = 
 
   if (!current) {
     try {
-      current = await post(`/api/projects/${project.id}/test-scripts/${script.id}/execute`, { runner_id: runnerId });
+      current = await post(`/api/projects/${project.id}/test-scripts/${script.id}/execute`, { runner_id: runnerId, data_sets: dataSets });
     } catch (err) {
       spinner.remove();
       title.textContent = "Cannot execute yet";
@@ -182,7 +280,7 @@ export function runHistoryCard(project, stats) {
       h(
         "div",
         { class: "progress-steps" },
-        stats.recent.map((r) => h("div", { class: "row" }, h("a", { class: "row-link cell-key", href: `/projects/${project.id}/test-runs/${r.id}`, "data-link": "" }, r.key), statusPill(r.status), h("span", { class: "muted-text small" }, seconds(r.duration_seconds)), h("span", { class: "muted-text small", style: "margin-left:auto" }, formatDay(r.created_at)))),
+        stats.recent.map((r) => h("div", { class: "row" }, h("a", { class: "row-link cell-key", href: `/projects/${project.id}/test-runs/${r.id}`, "data-link": "" }, r.key), statusPill(r.status), r.data_set ? h("span", { class: "muted-text small", title: r.data_set.name }, r.data_set.name.split(" \u2014 ")[0]) : null, h("span", { class: "muted-text small" }, seconds(r.duration_seconds)), h("span", { class: "muted-text small", style: "margin-left:auto" }, formatDay(r.created_at)))),
       ),
     );
   }
@@ -224,6 +322,9 @@ export function testRunView(projectId, runId) {
           r.artifacts.length
             ? h("div", { class: "card" }, h("p", { class: "card-label" }, "Screenshots"), h("div", { class: "shots" }, r.artifacts.map((a) => h("a", { href: `/api/projects/${projectId}/test-runs/${r.id}/artifacts/${a.id}`, target: "_blank", rel: "noopener" }, h("img", { src: `/api/projects/${projectId}/test-runs/${r.id}/artifacts/${a.id}`, alt: `${a.name} of ${r.key}`, loading: "lazy" })))))
             : null,
+          r.data_set && Object.keys(r.data_set.values || {}).length
+            ? h("div", { class: "card" }, h("p", { class: "card-label" }, `Data used \u2014 ${r.data_set.name}`), h("div", { class: "table-wrap" }, h("table", { class: "data-table" }, h("thead", {}, h("tr", {}, h("th", { scope: "col" }, "Key"), h("th", { scope: "col" }, "Value"))), h("tbody", {}, Object.entries(r.data_set.values).map(([k, v]) => h("tr", {}, h("td", { class: "cell-key" }, k), h("td", { class: "wrap" }, v === "" ? h("span", { class: "muted-text" }, "(empty)") : v)))))))
+            : null,
           h("div", { class: "card" }, h("p", { class: "card-label" }, "Console output"), h("pre", { class: "log-box" }, r.log || "(no output)")),
         ),
         h(
@@ -240,6 +341,7 @@ export function testRunView(projectId, runId) {
             h("div", { class: "kv" }, h("span", { class: "k" }, "Browser"), h("span", { class: "v" }, r.headed ? "Chrome (visible)" : "Chrome (headless)")),
             h("div", { class: "kv" }, h("span", { class: "k" }, "Runner"), h("span", { class: "v" }, r.runner || "—")),
             h("div", { class: "kv" }, h("span", { class: "k" }, "Executed by"), h("span", { class: "v" }, r.executed_by || "—")),
+            r.data_set ? h("div", { class: "kv" }, h("span", { class: "k" }, "Data variation"), h("span", { class: "v" }, r.data_set.name)) : null,
             h("div", { class: "kv" }, h("span", { class: "k" }, "Script"), h("span", { class: "v cell-key" }, r.script ? h("a", { class: "row-link", href: `/projects/${projectId}/test-scripts/${r.script.id}`, "data-link": "" }, r.script.key) : "—")),
             h("div", { class: "kv" }, h("span", { class: "k" }, "Test case"), h("span", { class: "v cell-key" }, tc ? h("a", { class: "row-link", href: `/projects/${projectId}/test-cases/${tc.id}`, "data-link": "" }, tc.key) : "—")),
           ),

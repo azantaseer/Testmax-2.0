@@ -16,6 +16,7 @@ from app.models_tests import TcCase, TsRun, TsRunArtifact, TsScript
 from app.models_work import Job
 from app.routers.projects import get_project
 from app.routers.requirements import _job_dict
+from app.engines import datadriven
 from app.run_service import run_key, version_ok
 from app.runner_auth import is_online
 
@@ -33,6 +34,7 @@ def _run_row(r: TsRun, extra: dict | None = None) -> dict:
         "status": r.status,
         "duration_seconds": r.duration_seconds,
         "headed": r.headed,
+        "data_set": r.data_set,
         "started_at": r.started_at.isoformat() if r.started_at else None,
         "finished_at": r.finished_at.isoformat() if r.finished_at else None,
         "created_at": r.created_at.isoformat(),
@@ -76,6 +78,7 @@ def _get_script(db: Session, user: User, project_id: uuid.UUID, script_id: uuid.
 
 class ExecuteRequest(BaseModel):
     runner_id: uuid.UUID | None = None  # None = any online runner of the organization
+    data_sets: list[str] | None = None  # data variations to run, one execution each: "default" (DV-1) and/or ids; None = DV-1
 
 
 @router.post("/projects/{project_id}/test-scripts/{script_id}/execute", status_code=202)
@@ -104,25 +107,36 @@ def execute_script(project_id: uuid.UUID, script_id: uuid.UUID, body: ExecuteReq
             "Your runner is too old to execute scripts. Stop it and start it again from the updated TestMax folder (python -m runner run), then try again.",
         )
     key = f"TC-{case.seq:03d}" if case else "script"
-    job = jobs.enqueue(
-        db,
-        tenant_id=user.tenant_id,
-        job_type=JOB_TYPE,
-        project_id=project.id,
-        created_by=user.id,
-        max_attempts=1,  # a run is never repeated on its own: it may have changed data in the application under test
-        target_runner_id=target.id if target else None,
-        payload={
-            **runner_target.target_payload(target),
-            "script_id": str(script.id),
-            "script_key": f"TS-{script.seq:03d}",
-            "test_case_id": str(script.test_case_id),
-            "file_name": f"{key}.spec.js",
-            "code": script.code,
-            "filename": f"TS-{script.seq:03d}",
-        },
-    )
-    return {**_job_dict(job), "script_id": str(script.id)}
+    chosen = datadriven.choose(case.data_sets if case else [], body.data_sets if body else None)
+    if not script.data_keys and any(set_id != "default" for set_id, _, _ in chosen):
+        raise AppError(409, "not_data_driven", "This script does not read its values from a data block, so it can only run with its own values. Use \"Make data-driven\" first.")
+    steps = case.steps if case else []
+    started = []
+    for set_id, number, data_set in chosen:  # one execution per chosen variation
+        values = datadriven.values_for(steps, data_set)
+        label = datadriven.set_label(number, data_set) if set_id != "default" else datadriven.set_label(1, None)
+        job = jobs.enqueue(
+            db,
+            tenant_id=user.tenant_id,
+            job_type=JOB_TYPE,
+            project_id=project.id,
+            created_by=user.id,
+            max_attempts=1,  # a run is never repeated on its own: it may have changed data in the application under test
+            target_runner_id=target.id if target else None,
+            payload={
+                **runner_target.target_payload(target),
+                "script_id": str(script.id),
+                "script_key": f"TS-{script.seq:03d}",
+                "test_case_id": str(script.test_case_id),
+                "file_name": f"{key}.spec.js",
+                # the script with the variation's values as they are right now (the test case is read at this moment, not when the script was written)
+                "code": datadriven.run_code(script.code, steps, data_set),
+                "filename": f"TS-{script.seq:03d}",
+                **({"data_set": {"id": set_id, "name": label, "values": datadriven.mask_values(values)}} if script.data_keys else {}),
+            },
+        )
+        started.append({**_job_dict(job), "label": label})
+    return {**started[0], "script_id": str(script.id), "jobs": started}
 
 
 @router.get("/projects/{project_id}/test-scripts/{script_id}/runs")

@@ -104,6 +104,7 @@ def complete_run_script(db: Session, job: Job, runner: Runner, result: dict) -> 
         error=str(result.get("error") or "")[:4000],
         log=str(result.get("output") or "")[-MAX_LOG_CHARS:],
         script_code=str(payload.get("code") or ""),
+        data_set=payload.get("data_set") if isinstance(payload.get("data_set"), dict) else None,
         created_by=job.created_by,
     )
     db.add(run)

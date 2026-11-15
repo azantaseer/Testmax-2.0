@@ -3,6 +3,7 @@ import uuid
 from datetime import date, datetime, time, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Query, Response
+from pydantic import BaseModel
 from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session
 
@@ -10,7 +11,7 @@ from app import ai_providers, deletion, editing, jobs
 from app.ai_settings import effective_ai, require_model
 from app.db import get_db
 from app.deps import current_user, scoped_select
-from app.engines import docx_builder
+from app.engines import datadriven, docx_builder
 from app.engines.tcg import TESTCASE_TYPES as CASE_TYPE_NAMES
 from app.errors import AppError
 from app.models import Tenant, User
@@ -241,9 +242,46 @@ def read_test_case(project_id: uuid.UUID, case_id: uuid.UUID, user: User = Depen
         "prerequisites": c.prerequisites,
         "objective": c.objective,
         "expected_result": c.expected_result,
-        "steps": c.steps,
+        "steps": datadriven.with_keys(c.steps or []),
+        "data": data_view(c),
         "set": _set_dict(case_set) if case_set else None,
     }
+
+
+def data_view(c: TcCase) -> dict:
+    """What the data variation screens need: the keys (in step order), DV-1 (the test data in the steps) and the other variations."""
+    steps = datadriven.keyed_steps(c.steps or [])
+    return {
+        "keys": [{"key": s["dataKey"], "step_no": s["stepNo"], "step": s["testStep"], "field": s.get("fieldName") if s.get("fieldName") != "—" else ""} for s in steps],
+        "default": datadriven.default_values(c.steps or []),
+        "sets": list(c.data_sets or []),
+    }
+
+
+class DataSetsBody(BaseModel):
+    data_sets: list[dict]
+
+
+@router.put("/projects/{project_id}/test-cases/{case_id}/data-sets")
+def save_data_sets(project_id: uuid.UUID, case_id: uuid.UUID, body: DataSetsBody, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Replace the data variations of a test case (DV-1, the default, is the test data in the steps and is never stored here).
+
+    A variation holds a name and a value per key; an empty value means "use the default". This does not change the steps, so
+    no script becomes out of date."""
+    get_project(db, user, project_id)
+    c = db.scalar(scoped_select(TcCase, user).where(TcCase.id == case_id, TcCase.project_id == project_id).with_for_update())
+    if c is None:
+        raise AppError(404, "test_case_not_found", "Test case not found.")
+    keyed = datadriven.with_keys(c.steps or [])
+    keys = [s["dataKey"] for s in keyed if s.get("dataKey")]
+    if not keys:
+        raise AppError(409, "no_test_data", "This test case has no test data to vary: none of its steps has a value.")
+    c.data_sets = datadriven.clean_data_sets(body.data_sets, keys)
+    if keyed != (c.steps or []):
+        c.steps = keyed  # keep the keys the variations refer to
+    c.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    return data_view(c)
 
 
 @router.delete("/projects/{project_id}/test-cases/{case_id}", status_code=204)
