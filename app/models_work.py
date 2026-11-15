@@ -78,3 +78,4 @@ class Requirement(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     edited: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    tags: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")  # free-form labels that group requirements

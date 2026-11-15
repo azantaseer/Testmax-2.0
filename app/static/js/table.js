@@ -95,6 +95,7 @@ export function filterPopover({ fields, value = {}, onApply }) {
   let optionQuery = "";
   const optionsOf = Object.fromEntries(fields.map((f) => [f.key, f.options || []]));
 
+  const chips = h("div", { class: "filter-chips", "aria-label": "Applied filters" });
   const badge = h("span", { class: "filter-count", hidden: true });
   const button = h("button", { class: "btn btn-primary btn-md filter-btn", type: "button", "aria-haspopup": "dialog", "aria-expanded": "false" }, icon("filter"), "Filter", badge);
   const left = h("div", { class: "fp-fields", role: "tablist", "aria-label": "Filter by", "aria-orientation": "vertical" });
@@ -108,11 +109,53 @@ export function filterPopover({ fields, value = {}, onApply }) {
   const isActive = (v, f) => (f.type === "date" ? !!(v[f.key] && (v[f.key].from || v[f.key].to)) : !!(v[f.key] && v[f.key].length));
   const activeCount = (v) => fields.filter((f) => isActive(v, f)).length;
 
+  const labelOf = (key, value) => (optionsOf[key].find((o) => o.value === value) || { label: value }).label;
+
+  /** The applied filters as small removable chips ("Source: login.docx x"), shown under the search box. */
+  function paintChips() {
+    const items = [];
+    for (const f of fields) {
+      if (!isActive(applied, f)) continue;
+      if (f.type === "date") {
+        const { from, to } = applied[f.key];
+        const text = from && to ? `${from} to ${to}` : from ? `from ${from}` : `until ${to}`;
+        items.push({ text: `${f.label}: ${text}`, remove: (target) => { delete target[f.key]; } });
+      } else {
+        for (const value of applied[f.key]) {
+          items.push({ text: `${f.label}: ${labelOf(f.key, value)}`, remove: (target) => { target[f.key] = target[f.key].filter((v) => v !== value); } });
+        }
+      }
+    }
+    chips.replaceChildren(
+      ...items.map((item) =>
+        h(
+          "button",
+          {
+            class: "fchip",
+            type: "button",
+            "aria-label": `Remove filter ${item.text}`,
+            title: "Remove this filter",
+            onclick: () => {
+              const next = clone(applied);
+              item.remove(next);
+              commit(next);
+            },
+          },
+          h("span", {}, item.text),
+          h("span", { class: "fchip-x", "aria-hidden": "true" }, "\u00d7"),
+        ),
+      ),
+      items.length > 1 ? h("button", { class: "link fchip-clear", type: "button", onclick: () => commit({}) }, "Clear all") : null,
+    );
+    chips.hidden = items.length === 0;
+  }
+
   function paintBadge() {
     const n = activeCount(applied);
     badge.textContent = String(n);
     badge.hidden = n === 0;
     button.setAttribute("aria-label", n ? `Filter, ${n} active` : "Filter");
+    paintChips();
   }
 
   function paintFields() {
@@ -239,7 +282,7 @@ export function filterPopover({ fields, value = {}, onApply }) {
   function commit(next) {
     applied = clean(next, fields);
     paintBadge();
-    close();
+    if (!panel.hidden) close();
     onApply(clone(applied));
   }
   button.addEventListener("click", (event) => {
@@ -272,9 +315,14 @@ export function filterPopover({ fields, value = {}, onApply }) {
 
   return {
     el,
+    chips,
+    /** Apply a filter from outside the popover (for example a click on a tag in a table row). */
+    apply: (next) => commit(next),
+    value: () => clone(applied),
     setOptions(key, options) {
       optionsOf[key] = options;
       if (!panel.hidden && current === key) paintValues();
+      paintChips();
     },
     setValue(next) {
       applied = clean(next, fields);

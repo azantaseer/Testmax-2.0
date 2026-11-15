@@ -86,3 +86,37 @@
 .fp-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border-top: 1px solid var(--border-table); background: var(--bg-th); }
 .fp-count { margin-left: auto; font-size: var(--fs-sm); color: var(--text-subtle); }
 @media (max-width: 560px) { .fp-body { grid-template-columns: 1fr; } .fp-fields { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--border-table); } }
+
+/* applied-filter chips */
+.filter-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -4px 0 16px; }
+.fchip { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; height: 28px; padding: 0 8px 0 12px; border: 1px solid var(--green-soft); border-radius: var(--radius-pill); background: var(--pill-green-bg); box-shadow: inset 0 0 0 1px var(--pill-green-ring); color: var(--navy); font-size: var(--fs-sm); font-weight: 500; cursor: pointer; }
+.fchip > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px; }
+.fchip:hover { background: var(--green-soft); }
+.fchip-x { font-size: 16px; line-height: 1; color: var(--text-muted); }
+.fchip-clear { font-size: var(--fs-sm); }
+
+/* source document and tags in the requirements list */
+.src-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 200px; height: 26px; padding: 0 10px 0 8px; border: 0; border-radius: var(--radius-pill); background: var(--pill-slate-bg); color: var(--pill-slate-fg); font-size: var(--fs-sm); font-weight: 500; cursor: pointer; }
+.src-chip:hover { box-shadow: inset 0 0 0 1px var(--pill-slate-fg); }
+.src-chip svg { flex: none; width: 14px; height: 14px; }
+.src-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tag-list { display: inline-flex; align-items: center; gap: 6px; }
+.tag-list.wrap { flex-wrap: wrap; }
+.tag-chip { display: inline-flex; align-items: center; gap: 4px; max-width: 150px; height: 24px; padding: 0 10px; border: 0; border-radius: var(--radius-pill); font-size: var(--fs-sm); font-weight: 500; white-space: nowrap; }
+button.tag-chip { cursor: pointer; }
+button.tag-chip:hover { box-shadow: inset 0 0 0 1px currentColor; }
+.tag-text { overflow: hidden; text-overflow: ellipsis; }
+.tag-teal { background: var(--pill-teal-bg); color: var(--pill-teal-fg); }
+.tag-fuchsia { background: var(--pill-fuchsia-bg); color: var(--pill-fuchsia-fg); }
+.tag-emerald { background: var(--pill-emerald-bg); color: var(--pill-emerald-fg); }
+.tag-amber { background: var(--pill-amber-bg); color: var(--pill-amber-fg); }
+.tag-indigo { background: var(--pill-indigo-bg); color: var(--pill-indigo-fg); }
+.tag-slate { background: var(--pill-slate-bg); color: var(--pill-slate-fg); }
+.tag-more { font-size: var(--fs-sm); color: var(--text-muted); cursor: default; }
+.tag-x { display: grid; place-items: center; width: 16px; height: 16px; margin-right: -6px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: inherit; font-size: 14px; line-height: 1; cursor: pointer; }
+.tag-x:hover { background: rgb(0 0 0 / 0.12); }
+.tag-row { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; }
+.tag-add { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px; border: 1px dashed var(--text-muted); border-radius: var(--radius-pill); background: transparent; color: var(--text-label); font-size: var(--fs-sm); cursor: pointer; }
+.tag-add:hover { border-color: var(--green-deep); color: var(--green-deep); }
+.tag-suggest { display: flex; flex-direction: column; gap: 6px; }
+.tag-suggest .label { margin: 0; }

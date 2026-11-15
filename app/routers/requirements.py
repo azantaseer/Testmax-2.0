@@ -1,8 +1,11 @@
 """Requirements: upload a BRD, generate requirements as a background job, list and read them. Tenant-scoped."""
+import re
 import uuid
+from collections import Counter
 from datetime import date, datetime, time, timedelta, timezone
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
+from pydantic import BaseModel, Field
 from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session
 
@@ -62,9 +65,20 @@ def _latest_scans(db: Session, user: User, ids: list) -> dict:
     return out
 
 
-def _req_dict(r: Requirement, full: bool, scan: dict | None = None) -> dict:
+def _sources(db: Session, user: User, rows: list) -> dict:
+    """document id -> {id, filename} for the documents these requirements were generated from."""
+    ids = {r.document_id for r in rows if r.document_id}
+    if not ids:
+        return {}
+    found = db.execute(select(Document.id, Document.filename, Document.created_at).where(Document.id.in_(ids), Document.tenant_id == user.tenant_id)).all()
+    return {d[0]: {"id": str(d[0]), "filename": d[1], "uploaded_at": d[2].isoformat()} for d in found}
+
+
+def _req_dict(r: Requirement, full: bool, scan: dict | None = None, sources: dict | None = None) -> dict:
     out = {
         "scan": scan,
+        "source": (sources or {}).get(r.document_id),
+        "tags": list(r.tags or []),
         "id": str(r.id),
         "project_id": str(r.project_id),
         "key": f"REQ-{r.seq:03d}",
@@ -126,6 +140,88 @@ def generate_requirements(
     return _job_dict(job)
 
 
+MAX_TAGS = 10
+MAX_TAG_LENGTH = 30
+CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def clean_tag(text) -> str:
+    """One tag as stored: control characters removed, spaces collapsed, at most 30 characters (longer is refused by the caller)."""
+    return " ".join(CONTROL.sub(" ", str(text or "")).split())
+
+
+def _tag_facet(db: Session, user: User, project_id: uuid.UUID) -> list:
+    rows = db.scalars(select(Requirement.tags).where(Requirement.tenant_id == user.tenant_id, Requirement.project_id == project_id)).all()
+    counts = Counter(t for tags in rows for t in (tags or []))
+    return [{"name": name, "count": n} for name, n in sorted(counts.items(), key=lambda kv: kv[0].lower())]
+
+
+def _document_facet(db: Session, user: User, project_id: uuid.UUID) -> list:
+    rows = db.execute(
+        select(Document.id, Document.filename, Document.created_at, func.count(Requirement.id))
+        .join(Requirement, Requirement.document_id == Document.id)
+        .where(Requirement.tenant_id == user.tenant_id, Requirement.project_id == project_id)
+        .group_by(Document.id, Document.filename, Document.created_at)
+        .order_by(Document.created_at.desc())
+    ).all()
+    return [{"id": str(d[0]), "filename": d[1], "uploaded_at": d[2].isoformat(), "count": d[3]} for d in rows]
+
+
+class TagsBody(BaseModel):
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=200)
+    add: list[str] = Field(default_factory=list, max_length=MAX_TAGS)
+    remove: list[str] = Field(default_factory=list, max_length=50)
+
+
+@router.post("/projects/{project_id}/requirements/tags")
+def tag_requirements(project_id: uuid.UUID, body: TagsBody, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Add and/or remove tags on 1 to 200 requirements at once. Tags are labels only: nothing else about the requirement,
+    its scans, test cases or scripts changes (the requirement's version is not touched). A spelling that already exists in the
+    project is reused, so "login" and "Login" are never two tags. At most 10 tags per requirement, 30 characters each."""
+    get_project(db, user, project_id)
+    ids = list(dict.fromkeys(body.ids))
+    rows = db.scalars(
+        select(Requirement).where(Requirement.tenant_id == user.tenant_id, Requirement.project_id == project_id, Requirement.id.in_(ids)).with_for_update()
+    ).all()
+    if len(rows) != len(ids):
+        raise AppError(404, "requirement_not_found", "One of the requirements was not found.")
+    vocabulary = {}
+    for tags in db.scalars(select(Requirement.tags).where(Requirement.tenant_id == user.tenant_id, Requirement.project_id == project_id)).all():
+        for t in tags or []:
+            vocabulary.setdefault(t.lower(), t)
+    add = []
+    for raw in body.add:
+        tag = clean_tag(raw)
+        if not tag:
+            continue
+        if len(tag) > MAX_TAG_LENGTH:
+            raise AppError(422, "invalid_tag", f"A tag can have at most {MAX_TAG_LENGTH} characters.")
+        tag = vocabulary.get(tag.lower(), tag)
+        if tag.lower() not in {a.lower() for a in add}:
+            add.append(tag)
+    drop = {clean_tag(t).lower() for t in body.remove if clean_tag(t)}
+    plan = {}
+    for req in rows:
+        kept = [t for t in (req.tags or []) if t.lower() not in drop]
+        for tag in add:
+            if tag.lower() not in {k.lower() for k in kept}:
+                kept.append(tag)
+        if len(kept) > MAX_TAGS:
+            raise AppError(422, "too_many_tags", f"{_key(req)} would have more than {MAX_TAGS} tags.")
+        plan[req.id] = kept
+    changed = 0
+    for req in rows:
+        if list(req.tags or []) != plan[req.id]:
+            req.tags = plan[req.id]
+            changed += 1
+    db.commit()
+    return {"updated": changed, "tags": _tag_facet(db, user, project_id)}
+
+
+def _key(r: Requirement) -> str:
+    return f"REQ-{r.seq:03d}"
+
+
 @router.get("/projects/{project_id}/requirements")
 def list_requirements(
     project_id: uuid.UUID,
@@ -134,13 +230,16 @@ def list_requirements(
     page_size: int = 25,
     scan: list[str] = Query(default=[]),
     model: list[str] = Query(default=[]),
+    document: list[uuid.UUID] = Query(default=[]),
+    tag: list[str] = Query(default=[]),
     created_from: date | None = None,
     created_to: date | None = None,
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ):
     """Optional filters (all combine with AND): `scan` = scanned / not_scanned (both or neither = no filter), `model` (one or more
-    generating model names), `created_from` / `created_to` (inclusive days, UTC). `models` in the answer lists the models used in the project."""
+    generating model names), `document` (one or more source documents), `tag` (one or more tags: a requirement matches if it has any of them),
+    `created_from` / `created_to` (inclusive days, UTC). The answer also lists `models`, `documents` and `tags` (with counts) used in the project."""
     get_project(db, user, project_id)
     bad = [s for s in scan if s not in ("scanned", "not_scanned")]
     if bad:
@@ -158,6 +257,11 @@ def list_requirements(
         stmt = stmt.where(~exists().where(Scan.requirement_id == Requirement.id))
     if model:
         stmt = stmt.where(Requirement.model.in_(model))
+    if document:
+        stmt = stmt.where(Requirement.document_id.in_(document))
+    wanted_tags = [t for t in (clean_tag(x) for x in tag) if t]
+    if wanted_tags:
+        stmt = stmt.where(or_(*[Requirement.tags.contains([t]) for t in wanted_tags]))
     if created_from:
         stmt = stmt.where(Requirement.created_at >= datetime.combine(created_from, time.min, tzinfo=timezone.utc))
     if created_to:
@@ -171,12 +275,15 @@ def list_requirements(
         .distinct()
         .order_by(Requirement.model)
     ).all()
+    sources = _sources(db, user, rows)
     return {
-        "requirements": [_req_dict(r, False, scans.get(r.id)) for r in rows],
+        "requirements": [_req_dict(r, False, scans.get(r.id), sources) for r in rows],
         "total": total,
         "page": page,
         "page_size": page_size,
         "models": list(models),
+        "documents": _document_facet(db, user, project_id),
+        "tags": _tag_facet(db, user, project_id),
     }
 
 
@@ -185,7 +292,7 @@ def edit_requirement(project_id: uuid.UUID, requirement_id: uuid.UUID, body: edi
     """Edit the summary, description or acceptance criteria. Existing scans and test cases are not changed."""
     get_project(db, user, project_id)
     req = editing.edit_requirement(db, user, project_id, requirement_id, body)
-    return _req_dict(req, True, _latest_scans(db, user, [req.id]).get(req.id))
+    return _req_dict(req, True, _latest_scans(db, user, [req.id]).get(req.id), _sources(db, user, [req]))
 
 
 @router.post("/projects/{project_id}/requirements/delete")
@@ -202,7 +309,7 @@ def read_requirement(project_id: uuid.UUID, requirement_id: uuid.UUID, user: Use
     r = db.scalar(scoped_select(Requirement, user).where(Requirement.id == requirement_id, Requirement.project_id == project_id))
     if r is None:
         raise AppError(404, "requirement_not_found", "Requirement not found.")
-    return _req_dict(r, True, _latest_scans(db, user, [r.id]).get(r.id))
+    return _req_dict(r, True, _latest_scans(db, user, [r.id]).get(r.id), _sources(db, user, [r]))
 
 
 @router.get("/projects/{project_id}/jobs")

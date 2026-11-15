@@ -54,14 +54,14 @@ export async function confirmAndDelete({ url, items, singular, plural, consequen
  * `bar` (hidden while nothing is selected) goes above the table. The selection survives paging and sorting; clear() it when
  * the search changes. onDone() reloads the list after a delete.
  */
-export function rowSelection({ url, singular, plural, consequence, onDone }) {
+export function rowSelection({ url, singular, plural, consequence, onDone, extra = [] }) {
   const picked = new Map(); // id -> key, across pages
   const visible = new Map(); // id -> { cb, key } on the page that is shown
   const count = h("strong", {});
   const head = h("input", { class: "cb", type: "checkbox", "aria-label": `Select all ${plural} on this page` });
   const del = h("button", { class: "btn btn-danger btn-sm", type: "button" }, "Delete selected");
   const clearBtn = h("button", { class: "link", type: "button" }, "Clear selection");
-  const bar = h("div", { class: "bulk-bar", role: "region", "aria-label": `Selected ${plural}`, hidden: true }, count, clearBtn, h("span", { style: "flex:1" }), del);
+  const bar = h("div", { class: "bulk-bar", role: "region", "aria-label": `Selected ${plural}`, hidden: true }, count, clearBtn, h("span", { style: "flex:1" }), ...extra, del);
 
   function sync() {
     bar.hidden = picked.size === 0;
@@ -116,5 +116,6 @@ export function rowSelection({ url, singular, plural, consequence, onDone }) {
       picked.clear();
       sync();
     },
+    ids: () => [...picked.keys()],
   };
 }
