@@ -1,0 +1,49 @@
+- main [ref=e102]:
+  - generic [ref=e1856]:
+    - generic [ref=e1857]:
+      - generic [ref=e1859]:
+        - navigation "breadcrumb" [ref=e1861]:
+          - list [ref=e1862]
+        - generic [ref=e1870]:
+          - generic [ref=e1875]
+          - generic [ref=e1904]
+      - generic [ref=e2010]:
+        - paragraph [ref=e2014]: More to Discover
+        - generic [ref=e2015]:
+          - link "Black" [ref=e2695] [cursor=pointer]:
+            - /url: /us/d/clothing/trending/black/
+          - link "Glam Looks" [ref=e2697] [cursor=pointer]:
+            - /url: /us/d/holiday-shop/party/glam-looks/
+          - link "Office Party" [ref=e2699] [cursor=pointer]:
+            - /url: /us/d/holiday-shop/party/office-party/
+          - link "Going Out Tops" [ref=e2701] [cursor=pointer]:
+            - /url: /us/d/tops/going-out-tops/
+          - link "Tops" [ref=e2023] [cursor=pointer]:
+            - /url: /us/d/clothing/tops/
+          - link "Long Sleeve Tops" [ref=e2021] [cursor=pointer]:
+            - /url: /us/d/tops/long-sleeve-tops/
+          - link "Blouses & Shirts" [ref=e2025] [cursor=pointer]:
+            - /url: /us/d/tops/blouses/
+      - generic [ref=e2033]:
+        - generic [ref=e2703]:
+          - paragraph [ref=e2707]: Bought Together
+          - generic [ref=e2708]
+        - generic [ref=e2217]:
+          - paragraph [ref=e2221]: You may also like
+          - generic [ref=e2222]
+        - generic [ref=e2363]:
+          - paragraph [ref=e2367]: Trending now
+          - generic [ref=e2368]
+          - button "Scroll right" [ref=e2685] [cursor=pointer]
+    - generic [ref=e2048]:
+      - generic [ref=e2049]:
+        - heading "Reviews" [level=2] [ref=e2050]
+        - generic [ref=e2051]:
+          - generic [ref=e2052]
+          - generic [ref=e2076]
+      - generic [ref=e2085]:
+        - generic [ref=e2086]:
+          - heading "Customers say" [level=3] [ref=e2089]
+          - paragraph [ref=e2090]: The satin blouse is made of high-quality material that feels luxurious and has a beautiful sheen. The cinched waist design is flattering and creates a feminine, tailored silhouette. The blouse can be dressed up or down, making it suitable for various occasions. The color options, especially the rich jewel tones, are elegant and perfect for the fall/winter season. Customers are highly satisfied with the fit, quality, and versatility of this product.
+          - paragraph [ref=e2091]: Summary generated from customer reviews
+        - button "Write a review" [ref=e2092] [cursor=pointer]

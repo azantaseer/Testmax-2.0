@@ -1,0 +1,115 @@
+/* TestMax Pilot 2 design tokens: the one shared layer every other stylesheet uses.
+   Values were measured on the UAT app (reference/uat/AUDIT.md, tokens.css). Load this file first. */
+@font-face { font-family: "Inter"; src: url("/static/fonts/Inter-latin-var.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: "Sora"; src: url("/static/fonts/Sora-latin-var.woff2") format("woff2"); font-weight: 100 800; font-display: swap; }
+@font-face { font-family: "Manrope"; src: url("/static/fonts/Manrope-latin-var.woff2") format("woff2"); font-weight: 200 800; font-display: swap; }
+
+:root {
+  /* brand */
+  --green: #5ecf80;
+  --green-hover: #4abf6a;
+  --green-deep: #278043;      /* links and text on white (4.9:1, WCAG AA) */
+  --green-soft: rgb(94 207 128 / 0.2);  /* tab bar fill */
+  --navy: #154260;            /* text on green buttons, breadcrumb links */
+  --link: #155dfc;
+
+  /* text */
+  --text: #0a0a0a;
+  --text-secondary: rgb(10 10 10 / 0.7);
+  --text-body: #2c2c2c;
+  --text-muted: #717182;
+  --text-th: #6a7282;         /* table headers */
+  --text-label: #344054;      /* form labels, secondary buttons */
+  --text-subtle: #667085;     /* hints, pager, placeholders */
+  --heading: #0e1116;
+  --heading-settings: #101828;
+
+  /* surfaces and lines */
+  --bg: #ffffff;
+  --bg-chrome: #fafafa;       /* top bar, sidebar */
+  --bg-th: #f9fafc;
+  --bg-input: #f3f3f5;
+  --bg-hover: #f5f5f5;
+  --border: rgb(0 0 0 / 0.1);
+  --border-table: #ececef;
+  --danger: #dc2626;
+  --danger-bg: #fef2f2;
+  --danger-border: #fecaca;
+  --warn-bg: #fefce8;
+  --warn-border: #fff085;
+  --ok-bg: #f0fdf4;
+  --ok-border: #bbf7d0;
+  --ok-text: #166534;
+  --disabled-bg: #e5e7eb;
+  --disabled-text: #6b7280;
+
+  /* pills: Tailwind 100 background / 800 text */
+  --pill-indigo-bg: #e0e7ff;  --pill-indigo-fg: #372aac;
+  --pill-teal-bg: #cbfbf1;    --pill-teal-fg: #005f5a;
+  --pill-fuchsia-bg: #fae8ff; --pill-fuchsia-fg: #8a0194;
+  --pill-emerald-bg: #d0fae5; --pill-emerald-fg: #006045;
+  --pill-amber-bg: #fef3c6;   --pill-amber-fg: #973c00;
+  --pill-slate-bg: #e2e8f0;   --pill-slate-fg: #314158;
+  --pill-red-bg: #fee2e2;     --pill-red-fg: #991b1b;
+  --pill-green-bg: rgb(94 207 128 / 0.05); --pill-green-ring: rgb(94 207 128 / 0.25);
+  --avatar: #9333ea;           /* white initials on it: 5.4:1 */
+
+  /* type */
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Manrope", "Inter", ui-sans-serif, system-ui, sans-serif;  /* page titles */
+  --font-auth: "Sora", "Inter", ui-sans-serif, sans-serif;                    /* sign-in pages only */
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --fs-2xs: 10px; --fs-xs: 11px; --fs-sm: 12px; --fs-md: 13.5px; --fs-base: 14px; --fs-lg: 16px; --fs-xl: 20px; --fs-2xl: 30px;
+  --lh-tight: 16px; --lh-base: 20px; --lh-body: 24px;
+  --tracking-ui: -0.15px;     /* 14px UI text */
+
+  /* shape */
+  --radius-sm: 4px; --radius-btn-sm: 6px; --radius: 8px; --radius-card: 12px; --radius-lg: 16px; --radius-pill: 9999px;
+  --shadow-xs: 0 1px 2px rgb(16 24 40 / 0.05);
+  --shadow-card: 0 8px 24px -12px rgb(15 20 30 / 0.08), 0 1px 2px rgb(15 20 30 / 0.04);
+  --shadow-pop: 0 8px 24px rgb(0 0 0 / 0.12), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+
+  /* sizes */
+  --topbar-h: 76px; --sidebar-w: 256px;
+  --btn-h-sm: 32px; --btn-h: 36px; --input-h: 46px; --control-h: 36px; --tab-h: 30px;
+  --th-h: 40px; --row-h: 41px; --cell-px: 12px;
+  --duration: 0.15s;
+  --page-pad: 24px;
+  --focus-ring: 0 0 0 2px #fff, 0 0 0 4px #155dfc;
+
+  /* names used by the older stylesheets: kept as aliases so nothing breaks while pages move to the new names */
+  --primary: var(--green);
+  --primary-hover: var(--green-hover);
+  --primary-deep: var(--green-deep);
+  --text-main: var(--text-body);
+  --muted: var(--text-muted);
+  --pagination: var(--text-subtle);
+  --secondary: var(--text-label);
+  --page: var(--bg-chrome);
+  --input-bg: var(--bg-input);
+  --table-header: var(--bg-th);
+  --nav-selected: var(--bg-hover);
+  --font-marketing: var(--font-display);
+}
+
+/* ---------- base ---------- */
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  font-family: var(--font-sans); font-size: var(--fs-base); line-height: var(--lh-base); letter-spacing: var(--tracking-ui);
+  color: var(--text); background: var(--bg); -webkit-font-smoothing: antialiased;
+}
+button, input, select, textarea { font: inherit; letter-spacing: inherit; color: inherit; }
+a { color: inherit; text-decoration: none; }
+[hidden] { display: none !important; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* a visible keyboard focus ring everywhere (mouse clicks do not show it) */
+:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+.input:focus-visible, .search-input:focus-visible { outline: none; }
+
+@media (max-width: 720px) { :root { --page-pad: 16px; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}

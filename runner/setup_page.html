@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TestMax Runner setup</title>
+<style>
+  :root { --green: #5ecf80; --green-deep: #3a9e59; --navy: #0f1b3d; --text: #18181b; --muted: #71717a; --border: #e4e4e7; --bg: #f9fafc; --danger: #dc2626; --warn-bg: #fffbeb; --warn: #92400e; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { background: #fff; border-bottom: 1px solid var(--border); padding: 14px 24px; display: flex; align-items: center; gap: 12px; }
+  .logo { font-weight: 800; font-size: 20px; color: var(--navy); letter-spacing: -0.02em; }
+  .logo b { color: var(--green-deep); }
+  .ver { color: var(--muted); font-size: 13px; }
+  main { max-width: 760px; margin: 24px auto 64px; padding: 0 16px; display: grid; gap: 16px; }
+  .card { background: #fff; border: 1px solid var(--border); border-radius: 16px; padding: 20px 24px; }
+  .card h2 { margin: 0 0 4px; font-size: 17px; }
+  .sub { margin: 0 0 14px; color: var(--muted); font-size: 14px; }
+  .checks { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; font-size: 14px; }
+  .checks li { display: flex; gap: 10px; align-items: baseline; }
+  .mark { display: inline-block; width: 20px; flex: none; font-weight: 700; }
+  .ok { color: var(--green-deep); } .bad { color: var(--danger); }
+  .hint { color: var(--muted); font-size: 13px; }
+  label { display: block; font-size: 14px; font-weight: 500; margin: 12px 0 4px; }
+  input[type=text], select { width: 100%; height: 40px; padding: 0 12px; border: 1px solid var(--border); border-radius: 10px; font: inherit; background: #fff; }
+  input:focus, select:focus { outline: 2px solid var(--green); outline-offset: 1px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  button { height: 40px; padding: 0 18px; border-radius: 10px; border: 1px solid var(--border); background: #fff; font: inherit; font-weight: 500; cursor: pointer; }
+  button.primary { background: var(--green); border-color: var(--green); color: var(--navy); }
+  button.primary:hover:not(:disabled) { background: #4fc172; }
+  button.danger { color: var(--danger); border-color: #fecaca; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.link { height: auto; padding: 0; border: 0; background: none; color: var(--green-deep); text-decoration: underline; }
+  .code { font: 700 38px/1 ui-monospace, Menlo, Consolas, monospace; letter-spacing: .12em; color: var(--navy); background: #f1f8f3; border: 2px dashed var(--green); border-radius: 14px; padding: 18px 12px; text-align: center; margin: 12px 0; user-select: all; }
+  .notice { background: var(--warn-bg); border: 1px solid #fde68a; border-radius: 10px; padding: 10px 14px; color: var(--warn); font-size: 14px; margin-top: 12px; }
+  .error { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; border-radius: 10px; padding: 10px 14px; font-size: 14px; margin-top: 12px; }
+  .pill { display: inline-block; border-radius: 999px; padding: 2px 12px; font-size: 13px; font-weight: 600; }
+  .pill.on { background: #d1fae5; color: #065f46; } .pill.off { background: #f1f1f4; color: #52525b; } .pill.wait { background: #fef3c7; color: #92400e; }
+  pre { margin: 12px 0 0; background: #0f1b3d; color: #d6e2ff; border-radius: 12px; padding: 12px 14px; font: 12.5px/1.5 ui-monospace, Menlo, Consolas, monospace; height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+  .check-row { display: flex; align-items: center; gap: 10px; margin: 12px 0 0; font-weight: 400; }
+  .check-row input { width: 17px; height: 17px; accent-color: var(--green-deep); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header><span class="logo">tm<b>x</b> TestMax</span><span class="ver" id="ver"></span></header>
+<main>
+
+  <section class="card">
+    <h2>1. This computer</h2>
+    <p class="sub">What the runner needs here to open a browser and run your tests.</p>
+    <ul class="checks" id="checks"></ul>
+  </section>
+
+  <section class="card" id="connect">
+    <h2>2. Connect to TestMax</h2>
+    <div id="connect-body"></div>
+  </section>
+
+  <section class="card">
+    <h2>3. Run</h2>
+    <p class="sub">While the runner is running, TestMax can send it scans and test runs. Keep this window (and the console window behind it) open.</p>
+    <div class="row">
+      <span class="pill off" id="status">Stopped</span>
+      <button class="primary" id="start" type="button">Start runner</button>
+      <button id="stop" type="button">Stop</button>
+    </div>
+    <label class="check-row"><input type="checkbox" id="headed"> Show the browser window while tests run (headed)</label>
+    <div class="row" style="margin-top:10px"><label for="slots" style="margin:0">Tests at the same time</label><select id="slots" style="width:90px"></select></div>
+    <p class="hint" id="settings-note" style="margin:8px 0 0">Changes apply the next time the runner starts.</p>
+    <div class="error" id="problem" hidden></div>
+    <pre id="log" aria-label="Runner log" aria-live="off">The log appears here.</pre>
+  </section>
+
+</main>
+<script>
+const TOKEN = "__TOKEN__";
+const $ = (id) => document.getElementById(id);
+let state = null;
+let editingServer = false;
+
+async function call(path, body) {
+  const options = { headers: { "X-Setup-Token": TOKEN } };
+  if (body !== undefined) { options.method = "POST"; options.headers["Content-Type"] = "application/json"; options.body = JSON.stringify(body); }
+  const response = await fetch(path, options);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || "Something went wrong.");
+  return data;
+}
+function el(tag, props, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(props || {})) { if (k === "class") e.className = v; else if (k.startsWith("on")) e.addEventListener(k.slice(2), v); else e.setAttribute(k, v); }
+  for (const kid of kids) e.append(kid);
+  return e;
+}
+function showProblem(message) { $("problem").textContent = message || ""; $("problem").hidden = !message; }
+
+function drawChecks(s) {
+  const item = (ok, text, hint) => el("li", {}, el("span", { class: "mark " + (ok ? "ok" : "bad") }, ok ? "✓" : "✗"), el("span", {}, text, hint ? el("div", { class: "hint" }, hint) : ""));
+  $("checks").replaceChildren(
+    item(true, "Python " + s.python + " · TestMax runner " + s.version + " · " + s.os),
+    item(!!s.node, s.node ? "Node.js " + s.node : "Node.js was not found", s.node ? "" : "Install Node.js 20 or newer from nodejs.org, then start the runner again."),
+    item(!!s.chrome, s.chrome ? "Google Chrome found" : "Google Chrome was not found", s.chrome ? s.chrome : "Install Google Chrome from google.com/chrome. The runner uses it to open your application."),
+    item(s.components, s.components ? "Browser tooling installed" : "Browser tooling is not installed yet", s.components ? "" : "Close this window and double-click the start file again; it installs the tooling the first time."),
+  );
+}
+
+function drawConnect(s) {
+  const body = $("connect-body");
+  const p = s.pairing || {};
+  if (p.status === "waiting") {
+    if (document.activeElement && body.contains(document.activeElement) && document.activeElement.tagName !== "BUTTON") return;
+    body.replaceChildren(
+      el("p", { class: "sub" }, "In TestMax, open Runners, choose Connect a Runner, and enter this code. An administrator has to approve it."),
+      p.code ? el("div", { class: "code" }, p.code) : el("p", { class: "hint" }, "Getting a code…"),
+      el("p", { class: "hint" }, p.code ? "The code is valid for " + Math.floor((p.seconds_left || 0) / 60) + " min " + ((p.seconds_left || 0) % 60) + " s. Waiting for approval…" : ""),
+      el("button", { type: "button", onclick: async () => { await call("/api/pair/cancel", {}); } }, "Cancel"),
+    );
+    return;
+  }
+  if (s.paired) {
+    body.replaceChildren(
+      el("p", {}, el("span", { class: "ok mark" }, "✓"), "Connected to ", el("b", {}, s.server), " as ", el("b", {}, s.name || "this computer"), "."),
+      el("p", { class: "hint" }, "To connect to a different TestMax (or a different organization), disconnect first."),
+      el("button", { class: "danger", type: "button", onclick: async () => { if (confirm("Disconnect this computer from TestMax? It stops working until it is connected again, and an administrator should revoke it on the Runners page.")) { await call("/api/unpair", {}); } } }, "Disconnect this computer"),
+    );
+    return;
+  }
+  if (body.querySelector("#server") && (document.activeElement === $("server") || document.activeElement === $("cname"))) return; // do not disturb typing
+  const server = el("input", { type: "text", id: "server", placeholder: "http://192.168.1.20:8000", autocomplete: "off", value: s.preset_server || "" });
+  const name = el("input", { type: "text", id: "cname", maxlength: "80", autocomplete: "off", value: s.computer_name });
+  const error = el("div", { class: "error", hidden: "" });
+  const go = el("button", { class: "primary", type: "button" }, "Get pairing code");
+  go.addEventListener("click", async () => {
+    error.hidden = true;
+    go.disabled = true;
+    try { await call("/api/pair", { server: server.value, name: name.value }); } catch (e) { error.textContent = e.message; error.hidden = false; go.disabled = false; }
+  });
+  const lastError = p.status === "error" ? el("div", { class: "error" }, p.message) : null;
+  body.replaceChildren(
+    el("p", { class: "sub" }, "Enter the address of your TestMax server. The runner shows a short code that an administrator approves in TestMax, so no password is typed here."),
+    el("label", { for: "server" }, "TestMax address"), server,
+    el("label", { for: "cname" }, "Name of this computer in TestMax"), name,
+    el("div", { class: "row", style: "margin-top:14px" }, go),
+    error,
+    ...(lastError ? [lastError] : []),
+  );
+}
+
+function draw(s) {
+  state = s;
+  $("ver").textContent = "Runner " + s.version;
+  drawChecks(s);
+  drawConnect(s);
+  const status = $("status");
+  const label = s.revoked ? "Revoked by an administrator" : s.online ? "Online" : s.running ? "Starting…" : "Stopped";
+  status.textContent = label;
+  status.className = "pill " + (s.online ? "on" : s.running ? "wait" : "off");
+  $("start").disabled = s.running || !s.paired;
+  $("stop").disabled = !s.running;
+  if (document.activeElement !== $("slots")) {
+    if (!$("slots").options.length) for (let i = 1; i <= 8; i++) $("slots").append(new Option(String(i), String(i)));
+    $("slots").value = String(s.settings.capacity);
+  }
+  if (document.activeElement !== $("headed")) $("headed").checked = s.settings.headed;
+  const log = $("log");
+  const atEnd = log.scrollTop + log.clientHeight >= log.scrollHeight - 30;
+  log.textContent = s.log.length ? s.log.join("\n") : "The log appears here.";
+  if (atEnd) log.scrollTop = log.scrollHeight;
+}
+
+async function refresh() {
+  try { draw(await call("/api/state")); }
+  catch (e) { $("status").textContent = "Setup page lost contact with the runner window"; $("status").className = "pill off"; }
+}
+async function act(path, body) {
+  showProblem("");
+  try { draw(await call(path, body || {})); } catch (e) { showProblem(e.message); }
+}
+async function saveSettings() { await act("/api/settings", { headed: $("headed").checked, capacity: Number($("slots").value) }); }
+
+$("start").addEventListener("click", () => act("/api/start"));
+$("stop").addEventListener("click", () => act("/api/stop"));
+$("headed").addEventListener("change", saveSettings);
+$("slots").addEventListener("change", saveSettings);
+refresh();
+setInterval(refresh, 1000);
+</script>
+</body>
+</html>

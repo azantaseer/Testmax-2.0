@@ -1,0 +1,21 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+data/
+node_modules/
+DEV_TEST_ACCOUNTS.md
+runner/test-runtime/node_modules/
+runner/test-runtime/runs/
+# runner state, keys and logs (never commit)
+runner/runner.json
+runner/*.settings.json
+runner/children.json
+runner/*.log
+runner/*.err
+runner/node_modules/
+runner/.venv/
+.playwright-mcp/
+# screenshots of the real UAT account (user's own data; not for publishing)
+reference/uat/*.jpg
