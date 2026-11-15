@@ -9,6 +9,9 @@ import { jobTracker } from "./jobs.js";
 import { scriptBatch } from "./testScripts.js";
 import { dataSetsDialog, valueFor, variationPicker } from "./dataSets.js";
 
+// The data Key column in the Test Steps table is hidden on request; set to true to show it again.
+const SHOW_KEY_COLUMN = false;
+
 const SOURCE_LABEL = { system: "system default", tenant: "your organization's choice", user: "your own setting" };
 
 export function scriptLink(project, script) {
@@ -323,7 +326,7 @@ export function testCaseDetailView(projectId, caseId) {
               h("td", { class: "num" }, String(s.stepNo)),
               h("td", {}, s.testStep),
               h("td", {}, dashed(s.fieldName)),
-              hasKeys ? h("td", {}, s.dataKey ? h("code", { class: "key-chip" }, s.dataKey) : h("span", { class: "dash" }, "\u2014")) : null,
+              SHOW_KEY_COLUMN && hasKeys ? h("td", {}, s.dataKey ? h("code", { class: "key-chip" }, s.dataKey) : h("span", { class: "dash" }, "\u2014")) : null,
               h("td", {}, s.dataKey ? testDataCell(valueFor(dataInfo, shown, s.dataKey)) : testDataCell(s.testData)),
               h("td", { class: "sec" }, dashed(s.expectedResult)),
               tech ? h("td", { class: "tech" }, s.sourceElementId || "—") : null,
@@ -332,9 +335,9 @@ export function testCaseDetailView(projectId, caseId) {
           ),
         );
         const dataHead = dataInfo.sets.length
-          ? h("th", { scope: "col" }, variationPicker(dataInfo, shown, (i) => { shown = i; drawSteps(); }))
-          : h("th", { scope: "col" }, "Test Data");
-        stepsHead.replaceChildren(h("tr", {}, h("th", { scope: "col" }, "ID"), h("th", { scope: "col" }, "Test Step"), h("th", { scope: "col" }, "Field Name"), hasKeys ? h("th", { scope: "col" }, "Key") : null, dataHead, h("th", { scope: "col" }, "Expected Result"), tech ? h("th", { scope: "col" }, "Source element") : null, h("th", { scope: "col", class: "row-edit" }, h("span", { class: "sr-only" }, "Edit"))));
+          ? h("th", { scope: "col", class: "c-data" }, variationPicker(dataInfo, shown, (i) => { shown = i; drawSteps(); }))
+          : h("th", { scope: "col", class: "c-data" }, "Test Data");
+        stepsHead.replaceChildren(h("tr", {}, h("th", { scope: "col", class: "c-id" }, "ID"), h("th", { scope: "col", class: "c-step" }, "Test Step"), h("th", { scope: "col", class: "c-field" }, "Field Name"), SHOW_KEY_COLUMN && hasKeys ? h("th", { scope: "col", class: "c-key" }, "Key") : null, dataHead, h("th", { scope: "col", class: "c-expected" }, "Expected Result"), tech ? h("th", { scope: "col", class: "c-tech" }, "Source element") : null, h("th", { scope: "col", class: "row-edit" }, h("span", { class: "sr-only" }, "Edit"))));
       }
       technical.addEventListener("change", drawSteps);
       drawSteps();
