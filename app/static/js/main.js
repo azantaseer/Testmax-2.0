@@ -13,6 +13,7 @@ import { scanResultView } from "./views/scan.js";
 import { testCaseDetailView, testCasesView } from "./views/testCases.js";
 import { testScriptDetailView, testScriptsView } from "./views/testScripts.js";
 import { testRunView } from "./views/testRuns.js";
+import { testBatchDetailView, testBatchRunView, testBatchesView } from "./views/testBatches.js";
 
 const root = document.getElementById("app");
 
@@ -50,6 +51,12 @@ function render() {
   if (caseList) return mount(root, shell("projects", testCasesView(caseList[1]), caseList[1]));
   const runDetail = path.match(/^\/projects\/([0-9a-f-]{36})\/test-runs\/([0-9a-f-]{36})$/);
   if (runDetail) return mount(root, shell("projects", testRunView(runDetail[1], runDetail[2]), runDetail[1]));
+  const batchRun = path.match(/^\/projects\/([0-9a-f-]{36})\/test-batch-runs\/([0-9a-f-]{36})$/);
+  if (batchRun) return mount(root, shell("projects", testBatchRunView(batchRun[1], batchRun[2]), batchRun[1]));
+  const batchDetail = path.match(/^\/projects\/([0-9a-f-]{36})\/test-batches\/([0-9a-f-]{36})$/);
+  if (batchDetail) return mount(root, shell("projects", testBatchDetailView(batchDetail[1], batchDetail[2]), batchDetail[1]));
+  const batchList = path.match(/^\/projects\/([0-9a-f-]{36})\/test-batches$/);
+  if (batchList) return mount(root, shell("projects", testBatchesView(batchList[1]), batchList[1]));
   const scriptDetail = path.match(/^\/projects\/([0-9a-f-]{36})\/test-scripts\/([0-9a-f-]{36})$/);
   if (scriptDetail) return mount(root, shell("projects", testScriptDetailView(scriptDetail[1], scriptDetail[2]), scriptDetail[1]));
   const scriptList = path.match(/^\/projects\/([0-9a-f-]{36})\/test-scripts$/);

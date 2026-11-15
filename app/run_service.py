@@ -74,6 +74,11 @@ def _clean_screenshots(raw) -> list:
 
 def complete_run_script(db: Session, job: Job, runner: Runner, result: dict) -> None:
     payload = job.payload
+    if payload.get("batch"):  # a test batch: one job, one joined script, one result per script inside it
+        from app import batch_service
+
+        batch_service.complete_batch_run(db, job, runner, result)
+        return
     script = db.get(TsScript, payload.get("script_id"))
     if script is None or script.tenant_id != job.tenant_id or script.project_id != job.project_id:
         jobs.fail(db, job.id, "The test script was deleted while it was running.")

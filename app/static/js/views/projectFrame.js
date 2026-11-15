@@ -6,6 +6,7 @@ const TABS = [
   { key: "requirements", label: "Requirements", path: "" },
   { key: "test-cases", label: "Test Cases", path: "/test-cases" },
   { key: "test-scripts", label: "Test Scripts", path: "/test-scripts" },
+  { key: "test-batches", label: "Test Batches", path: "/test-batches" },
 ];
 
 /**

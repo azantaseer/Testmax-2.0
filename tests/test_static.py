@@ -24,5 +24,5 @@ def test_every_file_the_page_links_is_served_and_the_token_layer_is_first():
     for name in ("--green:", "--row-h: 41px", "--th-h: 40px", "--topbar-h: 76px", "--sidebar-w: 256px", "--pill-teal-bg:"):
         assert name in tokens
     # every module the UI imports exists (a missing file would leave a blank page)
-    for module in ("table.js", "components.js", "store.js", "dom.js", "views/shell.js", "views/requirements.js"):
+    for module in ("table.js", "components.js", "store.js", "dom.js", "views/shell.js", "views/requirements.js", "views/testBatches.js", "../css/batches.css"):
         assert c.get(f"/static/js/{module}").status_code == 200, module

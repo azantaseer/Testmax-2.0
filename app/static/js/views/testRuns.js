@@ -280,7 +280,7 @@ export function runHistoryCard(project, stats) {
       h(
         "div",
         { class: "progress-steps" },
-        stats.recent.map((r) => h("div", { class: "row" }, h("a", { class: "row-link cell-key", href: `/projects/${project.id}/test-runs/${r.id}`, "data-link": "" }, r.key), statusPill(r.status), r.data_set ? h("span", { class: "muted-text small", title: r.data_set.name }, r.data_set.name.split(" \u2014 ")[0]) : null, h("span", { class: "muted-text small" }, seconds(r.duration_seconds)), h("span", { class: "muted-text small", style: "margin-left:auto" }, formatDay(r.created_at)))),
+        stats.recent.map((r) => h("div", { class: "row" }, h("a", { class: "row-link cell-key", href: `/projects/${project.id}/test-runs/${r.id}`, "data-link": "" }, r.key), statusPill(r.status), r.data_set ? h("span", { class: "muted-text small", title: r.data_set.name }, r.data_set.name.split(" \u2014 ")[0]) : null, r.batch_run_id ? h("a", { class: "tpill lang", href: `/projects/${project.id}/test-batch-runs/${r.batch_run_id}`, "data-link": "", title: "This execution ran as part of a test batch" }, "Batch") : null, h("span", { class: "muted-text small" }, seconds(r.duration_seconds)), h("span", { class: "muted-text small", style: "margin-left:auto" }, formatDay(r.created_at)))),
       ),
     );
   }
@@ -342,6 +342,7 @@ export function testRunView(projectId, runId) {
             h("div", { class: "kv" }, h("span", { class: "k" }, "Runner"), h("span", { class: "v" }, r.runner || "—")),
             h("div", { class: "kv" }, h("span", { class: "k" }, "Executed by"), h("span", { class: "v" }, r.executed_by || "—")),
             r.data_set ? h("div", { class: "kv" }, h("span", { class: "k" }, "Data variation"), h("span", { class: "v" }, r.data_set.name)) : null,
+            r.batch_run ? h("div", { class: "kv" }, h("span", { class: "k" }, "Part of"), h("span", { class: "v" }, h("a", { class: "row-link cell-key", href: `/projects/${projectId}/test-batch-runs/${r.batch_run.id}`, "data-link": "", title: r.batch_run.name }, r.batch_run.key), ` · script ${r.batch_run.position}`)) : null,
             h("div", { class: "kv" }, h("span", { class: "k" }, "Script"), h("span", { class: "v cell-key" }, r.script ? h("a", { class: "row-link", href: `/projects/${projectId}/test-scripts/${r.script.id}`, "data-link": "" }, r.script.key) : "—")),
             h("div", { class: "kv" }, h("span", { class: "k" }, "Test case"), h("span", { class: "v cell-key" }, tc ? h("a", { class: "row-link", href: `/projects/${projectId}/test-cases/${tc.id}`, "data-link": "" }, tc.key) : "—")),
           ),

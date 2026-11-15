@@ -119,6 +119,8 @@ class TsRun(Base):
     log: Mapped[str] = mapped_column(Text, nullable=False, default="")
     script_code: Mapped[str] = mapped_column(Text, nullable=False, default="")  # what actually ran (the script may be regenerated later)
     data_set: Mapped[dict | None] = mapped_column(JSONB)  # {id, name, values}: the data variation this run used (None: a script without data)
+    batch_run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("test_batch_runs.id", ondelete="SET NULL"), index=True)  # set when it ran as part of a batch
+    batch_position: Mapped[int | None] = mapped_column(Integer)  # its place (1, 2, ...) in that batch run
     created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -131,4 +133,60 @@ class TsRunArtifact(Base):
     name: Mapped[str] = mapped_column(Text, nullable=False)
     content_type: Mapped[str] = mapped_column(Text, nullable=False)
     data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class TbBatch(Base):
+    """A test batch: scripts that run in order in one browser session."""
+
+    __tablename__ = "test_batches"
+    __table_args__ = (UniqueConstraint("project_id", "seq", name="uq_test_batches_project_seq"),)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    on_failure: Mapped[str] = mapped_column(Text, nullable=False, default="stop", server_default="stop")  # stop | continue
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class TbItem(Base):
+    """One script in a batch, in order, with the data variation it uses. Deleting the script removes the item."""
+
+    __tablename__ = "test_batch_items"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    batch_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("test_batches.id", ondelete="CASCADE"), nullable=False, index=True)
+    script_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("test_scripts.id", ondelete="CASCADE"), nullable=False, index=True)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    data_set_id: Mapped[str] = mapped_column(Text, nullable=False, default="default", server_default="default")  # "default" (DV-1) or a variation id of the test case
+
+
+class TbRun(Base):
+    """One run of a batch: the order, each script's result (a snapshot, so it stays readable after the batch is edited) and the log."""
+
+    __tablename__ = "test_batch_runs"
+    __table_args__ = (UniqueConstraint("project_id", "seq", name="uq_test_batch_runs_project_seq"),)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    batch_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("test_batches.id", ondelete="CASCADE"), index=True)
+    job_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"))
+    runner_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("runners.id", ondelete="SET NULL"))
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    batch_key: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    batch_name: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    on_failure: Mapped[str] = mapped_column(Text, nullable=False, default="stop")
+    status: Mapped[str] = mapped_column(Text, nullable=False)  # passed | failed | skipped | aborted
+    headed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    duration_seconds: Mapped[float | None] = mapped_column(Float)
+    items: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)  # [{position, script_id, script_key, test_case_key, title, data_set, status, duration_seconds, error, run_id, run_key}]
+    error: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    log: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

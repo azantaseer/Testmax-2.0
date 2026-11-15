@@ -12,7 +12,7 @@ from app.deps import current_user, scoped_select
 from app.errors import AppError
 from app.models import User
 from app.models_runner import Runner
-from app.models_tests import TcCase, TsRun, TsRunArtifact, TsScript
+from app.models_tests import TbRun, TcCase, TsRun, TsRunArtifact, TsScript
 from app.models_work import Job
 from app.routers.projects import get_project
 from app.routers.requirements import _job_dict
@@ -35,6 +35,7 @@ def _run_row(r: TsRun, extra: dict | None = None) -> dict:
         "duration_seconds": r.duration_seconds,
         "headed": r.headed,
         "data_set": r.data_set,
+        "batch_run_id": str(r.batch_run_id) if r.batch_run_id else None,
         "started_at": r.started_at.isoformat() if r.started_at else None,
         "finished_at": r.finished_at.isoformat() if r.finished_at else None,
         "created_at": r.created_at.isoformat(),
@@ -81,6 +82,21 @@ class ExecuteRequest(BaseModel):
     data_sets: list[str] | None = None  # data variations to run, one execution each: "default" (DV-1) and/or ids; None = DV-1
 
 
+def prepare_runner(db: Session, user: User, runner_id: uuid.UUID | None):
+    """Checks that a runner can take a script job (the chosen one, or any online runner) and returns the chosen runner or None."""
+    target = runner_target.resolve_target(db, user, runner_id, needs_scripts=True)
+    runners = [r for r in db.scalars(scoped_select(Runner, user).where(Runner.revoked_at.is_(None))).all() if is_online(r)]
+    if not runners:
+        raise AppError(409, "no_runner_online", "No runner is online for your organization. Connect a runner (see the Runners page), then try again.")
+    if not any(version_ok((r.info or {}).get("version", "")) for r in runners):
+        raise AppError(
+            409,
+            "runner_outdated",
+            "Your runner is too old to execute scripts. Stop it and start it again from the updated TestMax folder (python -m runner run), then try again.",
+        )
+    return target
+
+
 @router.post("/projects/{project_id}/test-scripts/{script_id}/execute", status_code=202)
 def execute_script(project_id: uuid.UUID, script_id: uuid.UUID, body: ExecuteRequest | None = None, user: User = Depends(current_user), db: Session = Depends(get_db)):
     project = get_project(db, user, project_id)
@@ -96,16 +112,7 @@ def execute_script(project_id: uuid.UUID, script_id: uuid.UUID, body: ExecuteReq
     )
     if running is not None:
         raise AppError(409, "already_running", "This script is already being executed.")
-    target = runner_target.resolve_target(db, user, body.runner_id if body else None, needs_scripts=True)
-    runners = [r for r in db.scalars(scoped_select(Runner, user).where(Runner.revoked_at.is_(None))).all() if is_online(r)]
-    if not runners:
-        raise AppError(409, "no_runner_online", "No runner is online for your organization. Connect a runner (see the Runners page), then try again.")
-    if not any(version_ok((r.info or {}).get("version", "")) for r in runners):
-        raise AppError(
-            409,
-            "runner_outdated",
-            "Your runner is too old to execute scripts. Stop it and start it again from the updated TestMax folder (python -m runner run), then try again.",
-        )
+    target = prepare_runner(db, user, body.runner_id if body else None)
     key = f"TC-{case.seq:03d}" if case else "script"
     chosen = datadriven.choose(case.data_sets if case else [], body.data_sets if body else None)
     if not script.data_keys and any(set_id != "default" for set_id, _, _ in chosen):
@@ -153,6 +160,14 @@ def _get_run(db: Session, user: User, project_id: uuid.UUID, run_id: uuid.UUID) 
     return r
 
 
+def _batch_run_ref(db: Session, user: User, r: TsRun) -> dict | None:
+    """The batch run this execution was part of, if any: {id, key, name, position}."""
+    if r.batch_run_id is None:
+        return None
+    b = db.scalar(scoped_select(TbRun, user).where(TbRun.id == r.batch_run_id))
+    return {"id": str(b.id), "key": f"BR-{b.seq:03d}", "name": b.batch_name, "position": r.batch_position} if b else None
+
+
 @router.get("/projects/{project_id}/test-runs/{run_id}")
 def read_run(project_id: uuid.UUID, run_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)):
     get_project(db, user, project_id)
@@ -177,6 +192,7 @@ def read_run(project_id: uuid.UUID, run_id: uuid.UUID, user: User = Depends(curr
         "script": {"id": str(script.id), "key": f"TS-{script.seq:03d}"} if script else None,
         "test_case": {"id": str(case.id), "key": f"TC-{case.seq:03d}", "title": case.title, "type": case.case_type, "step_count": len(case.steps or [])} if case else None,
         "runner": runner_name,
+        "batch_run": _batch_run_ref(db, user, r),
         "executed_by": executed_by.name if executed_by and executed_by.tenant_id == user.tenant_id else None,
         "artifacts": [{"id": str(a[0]), "name": a[1], "content_type": a[2], "size": a[3]} for a in artifacts],
     }

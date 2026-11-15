@@ -3,15 +3,15 @@
 What goes with an item (the database cascades, nothing else is left behind):
 - requirement  -> its scans, test case sets, test cases, test scripts, executions (runs, steps, screenshots)
 - test case    -> its test script and that script's executions; a test case set that became empty
-- test script  -> its executions (the test case stays and can get a new script)
+- test script  -> its executions (the test case stays and can get a new script) and its places in test batches (the batch stays, one script shorter)
 
 An item that still has a queued or running job (generating, scanning, executing) is NOT deleted: it is reported back as
-"blocked" with the reason, so a running job never ends up pointing at a missing row.
+"blocked" with the reason, so a running job never ends up pointing at a missing row. That includes a running test batch that contains the script.
 """
 import uuid
 
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from app.deps import scoped_select
@@ -41,6 +41,26 @@ def _busy(db: Session, user: User, project_id: uuid.UUID, job_types: tuple, payl
     return {str(j.payload.get(payload_key)) for j in rows}
 
 
+def _busy_in_batch(db: Session, user: User, project_id: uuid.UUID, payload_key: str, ids) -> set:
+    """The ids (as strings) that are part of a queued or running test batch run (the batch job lists them under `payload_key`)."""
+    wanted = [str(i) for i in ids]
+    if not wanted:
+        return set()
+    rows = db.scalars(
+        scoped_select(Job, user).where(
+            Job.project_id == project_id,
+            Job.type == "run_script",
+            Job.status.in_(ACTIVE),
+            Job.payload["batch_id"].astext.is_not(None),
+            or_(*[Job.payload[payload_key].contains([w]) for w in wanted]),
+        )
+    ).all()
+    found = set()
+    for j in rows:
+        found |= {str(x) for x in (j.payload.get(payload_key) or [])} & set(wanted)
+    return found
+
+
 def _result(deleted: list, blocked: list, asked: int) -> dict:
     return {"deleted": deleted, "blocked": blocked, "missing": max(asked - len(deleted) - len(blocked), 0)}
 
@@ -54,7 +74,7 @@ def delete_requirements(db: Session, user: User, project_id: uuid.UUID, ids: lis
     scripts = db.execute(scoped_select(TsScript, user).where(TsScript.test_case_id.in_(case_ids)).with_only_columns(TsScript.id, TsScript.test_case_id)).all() if case_ids else []
     busy_reqs = _busy(db, user, project_id, ("generate_test_cases", "app_scan"), "requirement_id", req_ids)
     busy_cases = _busy(db, user, project_id, ("generate_test_script", "run_script"), "test_case_id", case_ids)
-    busy_scripts = _busy(db, user, project_id, ("run_script",), "script_id", [s.id for s in scripts])
+    busy_scripts = _busy(db, user, project_id, ("run_script",), "script_id", [s.id for s in scripts]) | _busy_in_batch(db, user, project_id, "script_ids", [s.id for s in scripts])
     busy_by_case = {c.requirement_id for c in cases if str(c.id) in busy_cases}
     busy_by_case |= {c.requirement_id for c in cases for s in scripts if s.test_case_id == c.id and str(s.id) in busy_scripts}
     deleted, blocked = [], []
@@ -76,7 +96,7 @@ def delete_test_cases(db: Session, user: User, project_id: uuid.UUID, ids: list)
     case_ids = [c.id for c in cases]
     scripts = db.execute(scoped_select(TsScript, user).where(TsScript.test_case_id.in_(case_ids)).with_only_columns(TsScript.id, TsScript.test_case_id)).all() if case_ids else []
     busy = _busy(db, user, project_id, ("generate_test_script", "run_script"), "test_case_id", case_ids)
-    busy_scripts = _busy(db, user, project_id, ("run_script",), "script_id", [s.id for s in scripts])
+    busy_scripts = _busy(db, user, project_id, ("run_script",), "script_id", [s.id for s in scripts]) | _busy_in_batch(db, user, project_id, "script_ids", [s.id for s in scripts])
     busy |= {str(s.test_case_id) for s in scripts if str(s.id) in busy_scripts}
     deleted, blocked, set_ids = [], [], set()
     for c in cases:
@@ -98,7 +118,7 @@ def delete_test_cases(db: Session, user: User, project_id: uuid.UUID, ids: list)
 def delete_test_scripts(db: Session, user: User, project_id: uuid.UUID, ids: list) -> dict:
     ids = list(dict.fromkeys(ids))
     scripts = db.scalars(scoped_select(TsScript, user).where(TsScript.id.in_(ids), TsScript.project_id == project_id).order_by(TsScript.seq)).all()
-    busy = _busy(db, user, project_id, ("run_script",), "script_id", [s.id for s in scripts])
+    busy = _busy(db, user, project_id, ("run_script",), "script_id", [s.id for s in scripts]) | _busy_in_batch(db, user, project_id, "script_ids", [s.id for s in scripts])
     busy_cases = _busy(db, user, project_id, ("generate_test_script",), "test_case_id", [s.test_case_id for s in scripts])
     deleted, blocked = [], []
     for s in scripts:

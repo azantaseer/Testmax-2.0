@@ -8,7 +8,7 @@ from sqlalchemy import text
 
 from app.db import get_engine
 from app.errors import install_error_handlers
-from app.routers import auth, me, projects, requirements, runners, scans, tenant, test_cases, test_runs, test_scripts, users
+from app.routers import auth, me, projects, requirements, runners, scans, tenant, test_batches, test_cases, test_runs, test_scripts, users
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -25,6 +25,7 @@ app.include_router(scans.router)
 app.include_router(test_cases.router)
 app.include_router(test_scripts.router)
 app.include_router(test_runs.router)
+app.include_router(test_batches.router)
 
 _CSP = (
     "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
